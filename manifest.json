@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/ch-bauer/jellyfin-plugin-litetv/main/images/icon.png",
     "versions": [
       {
+        "version": "1.0.2.0",
+        "changelog": "TV row stays at the bottom of the home screen; pause panel synced with Jellyfin Enhanced's pause screen and positioned top-right; end-of-episode overlay hides its buttons when there is no series to continue.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ch-bauer/jellyfin-plugin-litetv/releases/download/v1.0.2.0/litetv-channels_1.0.2.0.zip",
+        "checksum": "15fac3a48915b6024989f490f427b155",
+        "timestamp": "2026-07-20T00:00:00Z"
+      },
+      {
         "version": "1.0.1.0",
         "changelog": "Overlay buttons no longer toggle play/pause; Next Up suppressed while tuned; watch state fully untouched; skipping ahead advances the schedule; earlier end-of-episode overlay; pause panel (Jellyfin Enhanced integration); channel suggestions in the settings; polished visuals; plugin icon.",
         "targetAbi": "10.11.0.0",

@@ -1,5 +1,11 @@
+using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.LiteTv.Configuration;
 using Jellyfin.Plugin.LiteTv.Core;
 using Jellyfin.Plugin.LiteTv.Sessions;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Session;
 using Microsoft.AspNetCore.Authorization;
@@ -20,6 +26,7 @@ public class LiteTvController : ControllerBase
     private readonly ChannelPlaylistBuilder _playlistBuilder;
     private readonly TunedSessionMonitor _sessionMonitor;
     private readonly ISessionManager _sessionManager;
+    private readonly ILibraryManager _libraryManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LiteTvController"/> class.
@@ -27,14 +34,17 @@ public class LiteTvController : ControllerBase
     /// <param name="playlistBuilder">The channel playlist builder.</param>
     /// <param name="sessionMonitor">The tuned session monitor.</param>
     /// <param name="sessionManager">The session manager.</param>
+    /// <param name="libraryManager">The library manager.</param>
     public LiteTvController(
         ChannelPlaylistBuilder playlistBuilder,
         TunedSessionMonitor sessionMonitor,
-        ISessionManager sessionManager)
+        ISessionManager sessionManager,
+        ILibraryManager libraryManager)
     {
         _playlistBuilder = playlistBuilder;
         _sessionMonitor = sessionMonitor;
         _sessionManager = sessionManager;
+        _libraryManager = libraryManager;
     }
 
     /// <summary>
@@ -180,6 +190,121 @@ public class LiteTvController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Suggests channels based on the media present in the library: genre channels,
+    /// collection marathons and a kids channel. Used by the configuration page.
+    /// </summary>
+    /// <returns>The suggestions; already-existing channel names are skipped.</returns>
+    [HttpGet("Suggestions")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<List<ChannelSuggestionDto>> GetSuggestions()
+    {
+        var existingNames = new HashSet<string>(
+            Plugin.Instance?.Configuration.Channels.Select(c => c.Name) ?? Enumerable.Empty<string>(),
+            StringComparer.OrdinalIgnoreCase);
+        var suggestions = new List<ChannelSuggestionDto>();
+
+        var series = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = new[] { BaseItemKind.Series },
+            Recursive = true
+        }).OfType<Series>().ToList();
+        var movies = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = new[] { BaseItemKind.Movie },
+            Recursive = true
+        }).OfType<Movie>().Where(m => (m.RunTimeTicks ?? 0) > 0).ToList();
+
+        // Genre channels: the most common genres across series and movies.
+        var byGenre = new Dictionary<string, List<BaseItem>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in series.Cast<BaseItem>().Concat(movies))
+        {
+            foreach (var genre in item.Genres ?? Array.Empty<string>())
+            {
+                if (!byGenre.TryGetValue(genre, out var list))
+                {
+                    byGenre[genre] = list = new List<BaseItem>();
+                }
+
+                list.Add(item);
+            }
+        }
+
+        foreach (var genre in byGenre.Where(g => g.Value.Count >= 4).OrderByDescending(g => g.Value.Count).Take(5))
+        {
+            var name = genre.Key + "-Kanal";
+            if (existingNames.Contains(name))
+            {
+                continue;
+            }
+
+            var picks = genre.Value
+                .OrderByDescending(i => i is Series)
+                .ThenByDescending(i => i.CommunityRating ?? 0)
+                .Take(8);
+            suggestions.Add(BuildSuggestion(name, genre.Value.Count + " Titel mit dem Genre \"" + genre.Key + "\"", picks));
+        }
+
+        // Marathon channels from collections with enough content.
+        var boxSets = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = new[] { BaseItemKind.BoxSet },
+            Recursive = true
+        }).OfType<BoxSet>();
+        foreach (var boxSet in boxSets)
+        {
+            var children = boxSet.GetLinkedChildren();
+            if (children.Count < 3)
+            {
+                continue;
+            }
+
+            var name = "Marathon: " + boxSet.Name;
+            if (existingNames.Contains(name))
+            {
+                continue;
+            }
+
+            suggestions.Add(new ChannelSuggestionDto
+            {
+                Name = name,
+                Description = children.Count + " Filme aus der Sammlung \"" + boxSet.Name + "\" in Dauerschleife",
+                Sources = new List<SuggestedSourceDto>
+                {
+                    new() { Type = nameof(ChannelSourceType.Collection), ItemId = boxSet.Id, Name = boxSet.Name ?? string.Empty }
+                }
+            });
+        }
+
+        // Kids channel from FSK-0/FSK-6 rated content.
+        var kids = series.Cast<BaseItem>().Concat(movies)
+            .Where(i => i.OfficialRating is "FSK-0" or "FSK-6" or "0" or "6")
+            .OrderByDescending(i => i is Series)
+            .ThenBy(i => i.SortName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (kids.Count >= 3 && !existingNames.Contains("Kinderprogramm"))
+        {
+            suggestions.Add(BuildSuggestion("Kinderprogramm", kids.Count + " Titel mit FSK 0/6", kids.Take(10)));
+        }
+
+        return suggestions;
+    }
+
+    private static ChannelSuggestionDto BuildSuggestion(string name, string description, IEnumerable<BaseItem> items)
+    {
+        return new ChannelSuggestionDto
+        {
+            Name = name,
+            Description = description,
+            Sources = items.Select(i => new SuggestedSourceDto
+            {
+                Type = i is Series ? nameof(ChannelSourceType.Series) : nameof(ChannelSourceType.Movie),
+                ItemId = i.Id,
+                Name = i.Name ?? string.Empty
+            }).ToList()
+        };
+    }
+
     private static ProgramDto ToProgram(ScheduledEntry entry, DateTime startUtc)
     {
         return new ProgramDto
@@ -251,6 +376,36 @@ public class ChannelNowDto
 
     /// <summary>Gets or sets the upcoming programs.</summary>
     public List<ProgramDto> Upcoming { get; set; } = new();
+}
+
+/// <summary>
+/// A suggested channel derived from the library contents.
+/// </summary>
+public class ChannelSuggestionDto
+{
+    /// <summary>Gets or sets the suggested channel name.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets a short human-readable rationale.</summary>
+    public string Description { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the suggested sources.</summary>
+    public List<SuggestedSourceDto> Sources { get; set; } = new();
+}
+
+/// <summary>
+/// One source inside a channel suggestion.
+/// </summary>
+public class SuggestedSourceDto
+{
+    /// <summary>Gets or sets the source type name (Movie, Series, Collection).</summary>
+    public string Type { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the library item id.</summary>
+    public Guid ItemId { get; set; }
+
+    /// <summary>Gets or sets the item display name.</summary>
+    public string Name { get; set; } = string.Empty;
 }
 
 /// <summary>

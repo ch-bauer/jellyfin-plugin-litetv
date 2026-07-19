@@ -62,6 +62,7 @@ public class TunedSessionMonitor : IHostedService
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _sessionManager.PlaybackStart += OnPlaybackStart;
+        _sessionManager.PlaybackProgress += OnPlaybackProgress;
         _sessionManager.PlaybackStopped += OnPlaybackStopped;
         return Task.CompletedTask;
     }
@@ -70,6 +71,7 @@ public class TunedSessionMonitor : IHostedService
     public Task StopAsync(CancellationToken cancellationToken)
     {
         _sessionManager.PlaybackStart -= OnPlaybackStart;
+        _sessionManager.PlaybackProgress -= OnPlaybackProgress;
         _sessionManager.PlaybackStopped -= OnPlaybackStopped;
         return Task.CompletedTask;
     }
@@ -134,6 +136,46 @@ public class TunedSessionMonitor : IHostedService
         }
     }
 
+    private void OnPlaybackProgress(object? sender, PlaybackProgressEventArgs e)
+    {
+        var item = e.Item;
+        if (e.Session is null || item is null || !_tuned.TryGetValue(e.Session.Id, out var tuned))
+        {
+            return;
+        }
+
+        // Every progress report the server just persisted put the item into
+        // Continue Watching; revert it right away so channel viewing stays
+        // invisible on the account even while it is running.
+        tuned.Touch();
+        foreach (var user in e.Users)
+        {
+            if (!tuned.Snapshots.TryGetValue((user.Id, item.Id), out var snapshot))
+            {
+                continue;
+            }
+
+            try
+            {
+                var data = _userDataManager.GetUserData(user, item);
+                if (data is null || (data.PlaybackPositionTicks == snapshot.PlaybackPositionTicks && data.Played == snapshot.Played))
+                {
+                    continue;
+                }
+
+                data.PlaybackPositionTicks = snapshot.PlaybackPositionTicks;
+                data.Played = snapshot.Played;
+                data.PlayCount = snapshot.PlayCount;
+                data.LastPlayedDate = snapshot.LastPlayedDate;
+                _userDataManager.SaveUserData(user, item, data, UserDataSaveReason.TogglePlayed, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "LiteTV: could not revert progress for {Item}.", item.Name);
+            }
+        }
+    }
+
     private void OnPlaybackStopped(object? sender, PlaybackStopEventArgs e)
     {
         var item = e.Item;
@@ -150,24 +192,10 @@ public class TunedSessionMonitor : IHostedService
                 continue;
             }
 
-            try
-            {
-                var data = _userDataManager.GetUserData(user, item);
-                if (data is null)
-                {
-                    continue;
-                }
-
-                data.PlaybackPositionTicks = snapshot.PlaybackPositionTicks;
-                data.Played = snapshot.Played;
-                data.PlayCount = snapshot.PlayCount;
-                data.LastPlayedDate = snapshot.LastPlayedDate;
-                _userDataManager.SaveUserData(user, item, data, UserDataSaveReason.TogglePlayed, CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "LiteTV: could not restore user data for {Item}.", item.Name);
-            }
+            // Deferred: the server's own stop-save and any trailing progress report
+            // from the client would otherwise overwrite the restored state again,
+            // putting the item back into Continue Watching.
+            _ = RestoreUserDataAsync(user, item, snapshot);
         }
 
         if (tuned.FollowSchedule && e.PlayedToCompletion)
@@ -180,6 +208,30 @@ public class TunedSessionMonitor : IHostedService
         {
             // The user stopped mid-item: treat as switching the channel off.
             Untune(e.Session.Id);
+        }
+    }
+
+    private async Task RestoreUserDataAsync(User user, MediaBrowser.Controller.Entities.BaseItem item, UserDataSnapshot snapshot)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+
+            var data = _userDataManager.GetUserData(user, item);
+            if (data is null)
+            {
+                return;
+            }
+
+            data.PlaybackPositionTicks = snapshot.PlaybackPositionTicks;
+            data.Played = snapshot.Played;
+            data.PlayCount = snapshot.PlayCount;
+            data.LastPlayedDate = snapshot.LastPlayedDate;
+            _userDataManager.SaveUserData(user, item, data, UserDataSaveReason.TogglePlayed, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "LiteTV: could not restore user data for {Item}.", item.Name);
         }
     }
 

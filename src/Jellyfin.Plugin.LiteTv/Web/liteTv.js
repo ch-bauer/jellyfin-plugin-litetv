@@ -11,7 +11,9 @@
     var STYLE_ID = 'liteTvStyle';
     var TUNE_OVERLAY_ID = 'liteTvTuneOverlay';
     var NEXT_OVERLAY_ID = 'liteTvNextOverlay';
-    var NEXT_OVERLAY_WINDOW_SECONDS = 20;
+    var PAUSE_PANEL_ID = 'liteTvPausePanel';
+    var TUNED_BODY_CLASS = 'liteTvTuned';
+    var NEXT_OVERLAY_WINDOW_SECONDS = 45;
 
     // Tuned state for this browser tab. mode: 'schedule' | 'binge' | 'offschedule'
     var tuned = null;
@@ -45,6 +47,28 @@
         }
     }
 
+    // Keeps overlay button interactions from reaching the video OSD underneath
+    // (a plain click on the OSD surface toggles play/pause).
+    function swallow(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    function makeButton(label, className, onClick) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = className;
+        btn.textContent = label;
+        ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend'].forEach(function (evt) {
+            btn.addEventListener(evt, function (e) { e.stopPropagation(); });
+        });
+        btn.addEventListener('click', function (e) {
+            swallow(e);
+            onClick(e);
+        });
+        return btn;
+    }
+
     function ensureStyle() {
         if (document.getElementById(STYLE_ID)) {
             return;
@@ -52,67 +76,111 @@
         var style = document.createElement('style');
         style.id = STYLE_ID;
         style.textContent =
-            '#' + HOME_ROW_ID + ' { padding: 0 3.3%; margin-bottom: 1em; }' +
-            '#' + HOME_ROW_ID + ' h2 { font-size: 1.2em; margin: 0.5em 0; }' +
-            '#' + HOME_ROW_ID + ' .liteTvCards { display: flex; gap: 0.8em; overflow-x: auto; padding-bottom: 0.4em; }' +
+            /* ---- suppress Jellyfin's own Next Up while a channel is tuned ---- */
+            'body.' + TUNED_BODY_CLASS + ' .upNextContainer,' +
+            'body.' + TUNED_BODY_CLASS + ' .upNextDialog { display: none !important; }' +
+
+            /* ---------------------------------------------------- home row ---- */
+            '#' + HOME_ROW_ID + ' { padding: 0 3.3%; margin-bottom: 1.2em; }' +
+            '#' + HOME_ROW_ID + ' .liteTvCards { display: flex; gap: 1em; overflow-x: auto; padding: 0.3em 0.15em 0.6em; scrollbar-width: thin; }' +
             '.liteTvCard {' +
-            '  min-width: 16em; max-width: 16em; border-radius: 0.4em; cursor: pointer;' +
-            '  background: rgba(128, 128, 128, 0.16); padding: 0.9em 1em; box-sizing: border-box;' +
+            '  position: relative; min-width: 19em; max-width: 19em; min-height: 9.5em;' +
+            '  border-radius: 0.75em; overflow: hidden; cursor: pointer; color: #fff;' +
+            '  background-color: #1c2733; background-size: cover; background-position: center;' +
+            '  box-shadow: 0 0.15em 0.7em rgba(0, 0, 0, 0.35);' +
+            '  transition: transform 0.22s ease, box-shadow 0.22s ease;' +
             '}' +
-            '.liteTvCard:hover { background: rgba(128, 128, 128, 0.3); }' +
-            '.liteTvCard .liteTvChannelName { font-weight: 700; margin-bottom: 0.35em; }' +
-            '.liteTvCard .liteTvNow { font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
-            '.liteTvCard .liteTvNext { font-size: 0.85em; opacity: 0.75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
-            '.liteTvProgress { height: 0.2em; border-radius: 0.1em; background: rgba(128,128,128,0.35); margin: 0.5em 0 0.35em; }' +
-            '.liteTvProgress > div { height: 100%; border-radius: 0.1em; background: #00a4dc; }' +
-            '#liteTvHeaderBtn { margin: 0 0.2em; }' +
+            '.liteTvCard:hover { transform: translateY(-0.18em) scale(1.015); box-shadow: 0 0.4em 1.3em rgba(0, 0, 0, 0.5); }' +
+            '.liteTvCardShade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(8,10,14,0.05) 0%, rgba(8,10,14,0.45) 55%, rgba(8,10,14,0.88) 100%); }' +
+            '.liteTvChannelChip {' +
+            '  position: absolute; top: 0.75em; left: 0.8em;' +
+            '  background: rgba(10, 12, 16, 0.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);' +
+            '  border: 1px solid rgba(255,255,255,0.14); border-radius: 999px;' +
+            '  padding: 0.28em 0.85em; font-size: 0.82em; font-weight: 600; letter-spacing: 0.03em;' +
+            '}' +
+            '.liteTvCardBody { position: absolute; inset: auto 0 0 0; padding: 0.9em 1em 0.85em; }' +
+            '.liteTvNow { font-size: 1em; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 4px rgba(0,0,0,0.7); }' +
+            '.liteTvNext { font-size: 0.82em; opacity: 0.8; margin-top: 0.35em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
+            '.liteTvProgress { height: 0.22em; border-radius: 999px; background: rgba(255,255,255,0.22); margin-top: 0.55em; overflow: hidden; }' +
+            '.liteTvProgress > div { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #00a4dc, #4dd0ff); }' +
+
+            /* ------------------------------------------------ header button ---- */
+            '#liteTvHeaderBtn { margin: 0 0.2em; font-size: 1.15em; }' +
+
+            /* ------------------------------------------------------- guide ---- */
             '#' + GUIDE_ID + ' {' +
-            '  position: fixed; inset: 0; z-index: 1200; background: rgba(0, 0, 0, 0.72);' +
+            '  position: fixed; inset: 0; z-index: 1200;' +
+            '  background: rgba(6, 8, 12, 0.6); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);' +
             '  display: flex; align-items: center; justify-content: center;' +
+            '  opacity: 0; transition: opacity 0.25s ease;' +
             '}' +
+            '#' + GUIDE_ID + '.liteTvVisible { opacity: 1; }' +
             '#' + GUIDE_ID + ' .liteTvPanel {' +
-            '  background: #202020; color: #fff; border-radius: 0.5em; width: min(34em, 92vw);' +
-            '  max-height: 82vh; overflow-y: auto; padding: 1.2em 1.4em; box-shadow: 0 0.4em 2em rgba(0,0,0,0.7);' +
+            '  background: rgba(24, 27, 33, 0.94); color: #fff; border: 1px solid rgba(255,255,255,0.09);' +
+            '  border-radius: 1em; width: min(36em, 92vw); max-height: 82vh; overflow-y: auto;' +
+            '  padding: 1.4em 1.6em; box-shadow: 0 1em 3em rgba(0,0,0,0.6);' +
             '  font-size: clamp(12px, 1.05vw, 16px);' +
             '}' +
-            '#' + GUIDE_ID + ' h2 { margin: 0 0 0.8em; font-size: 1.3em; }' +
-            '#' + GUIDE_ID + ' .liteTvGuideChannel { border-top: 1px solid rgba(255,255,255,0.12); padding: 0.8em 0; }' +
+            '#' + GUIDE_ID + ' h2 { margin: 0 0 0.9em; font-size: 1.35em; font-weight: 700; letter-spacing: 0.01em; }' +
+            '#' + GUIDE_ID + ' .liteTvGuideChannel { border-top: 1px solid rgba(255,255,255,0.09); padding: 0.95em 0; }' +
+            '#' + GUIDE_ID + ' .liteTvGuideChannel:first-of-type { border-top: 0; }' +
             '#' + GUIDE_ID + ' .liteTvGuideHead { display: flex; align-items: center; justify-content: space-between; gap: 0.8em; }' +
-            '#' + GUIDE_ID + ' .liteTvGuideName { font-weight: 700; font-size: 1.1em; }' +
+            '#' + GUIDE_ID + ' .liteTvGuideName { font-weight: 700; font-size: 1.12em; }' +
             '#' + GUIDE_ID + ' .liteTvGuideActions { display: flex; gap: 0.5em; flex-shrink: 0; }' +
-            '#' + GUIDE_ID + ' button {' +
-            '  background: #00a4dc; color: #fff; border: 0; border-radius: 0.3em;' +
-            '  padding: 0.45em 0.9em; cursor: pointer; font-size: 0.95em;' +
+            '#' + GUIDE_ID + ' .liteTvEpg { margin: 0.5em 0 0; font-size: 0.9em; opacity: 0.85; line-height: 1.5; }' +
+            '#' + GUIDE_ID + ' .liteTvEpg .liteTvEpgTime { color: #4dd0ff; font-variant-numeric: tabular-nums; margin-right: 0.4em; }' +
+            '#' + GUIDE_ID + ' .liteTvDevices { margin-top: 0.6em; display: none; }' +
+            '#' + GUIDE_ID + ' .liteTvDevices .liteTvPill { display: block; width: 100%; text-align: left; margin: 0.35em 0; }' +
+
+            /* ---------------------------------------------- shared buttons ---- */
+            '.liteTvPill {' +
+            '  appearance: none; border-radius: 999px; cursor: pointer; font-weight: 600; font-size: 0.95em;' +
+            '  padding: 0.5em 1.15em; color: #fff; background: rgba(255,255,255,0.09);' +
+            '  border: 1px solid rgba(255,255,255,0.28);' +
+            '  transition: background 0.18s ease, border-color 0.18s ease, transform 0.12s ease;' +
             '}' +
-            '#' + GUIDE_ID + ' button.liteTvSecondary { background: rgba(255,255,255,0.14); }' +
-            '#' + GUIDE_ID + ' .liteTvEpg { margin: 0.4em 0 0; font-size: 0.92em; opacity: 0.9; }' +
-            '#' + GUIDE_ID + ' .liteTvEpg div { margin: 0.15em 0; }' +
-            '#' + GUIDE_ID + ' .liteTvDevices { margin-top: 0.5em; display: none; }' +
-            '#' + GUIDE_ID + ' .liteTvDevices button { display: block; width: 100%; text-align: left; margin: 0.3em 0; background: rgba(255,255,255,0.14); }' +
+            '.liteTvPill:hover { background: rgba(255,255,255,0.2); }' +
+            '.liteTvPill:active { transform: scale(0.97); }' +
+            '.liteTvPillPrimary { background: #00a4dc; border-color: transparent; }' +
+            '.liteTvPillPrimary:hover { background: #14b4ec; }' +
+            '.liteTvPillActive { background: #00a4dc; border-color: transparent; box-shadow: 0 0 0.7em rgba(0,164,220,0.55); }' +
+
+            /* -------------------------------------------- playback overlays ---- */
             '#' + TUNE_OVERLAY_ID + ', #' + NEXT_OVERLAY_ID + ' {' +
             '  position: absolute; z-index: 1000; pointer-events: none;' +
-            '  opacity: 0; transition: opacity 0.5s ease;' +
-            '  font-size: clamp(11px, 1.1vw, 17px); color: #fff;' +
+            '  opacity: 0; transform: translateY(0.5em); transition: opacity 0.45s ease, transform 0.45s ease;' +
+            '  font-size: clamp(11px, 1.1vw, 17px); color: #fff; font-family: inherit;' +
             '}' +
-            '#' + TUNE_OVERLAY_ID + '.liteTvVisible, #' + NEXT_OVERLAY_ID + '.liteTvVisible { opacity: 1; }' +
-            '#' + TUNE_OVERLAY_ID + ' { top: 8%; right: 4%; text-align: right; }' +
+            '#' + TUNE_OVERLAY_ID + '.liteTvVisible, #' + NEXT_OVERLAY_ID + '.liteTvVisible { opacity: 1; transform: translateY(0); }' +
+            '#' + TUNE_OVERLAY_ID + ' { top: 7%; right: 4%; display: flex; flex-direction: column; align-items: flex-end; gap: 0.6em; }' +
             '#' + TUNE_OVERLAY_ID + ' .liteTvBug {' +
-            '  display: inline-block; background: rgba(0, 0, 0, 0.55); border-radius: 0.3em;' +
-            '  padding: 0.5em 0.9em; font-weight: 700; text-shadow: 0 0.05em 0.3em rgba(0,0,0,0.8);' +
+            '  background: rgba(14, 16, 20, 0.6); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);' +
+            '  border: 1px solid rgba(255,255,255,0.16); border-radius: 999px;' +
+            '  padding: 0.5em 1.15em; font-weight: 700; letter-spacing: 0.02em;' +
+            '  box-shadow: 0 0.3em 1.2em rgba(0,0,0,0.45);' +
             '}' +
-            '#' + TUNE_OVERLAY_ID + ' button, #' + NEXT_OVERLAY_ID + ' button {' +
-            '  pointer-events: auto; background: rgba(255, 255, 255, 0.92); color: #000; border: 0;' +
-            '  border-radius: 0.3em; padding: 0.5em 1em; margin-top: 0.5em; cursor: pointer;' +
-            '  font-size: 1em; font-weight: 600; display: block; margin-left: auto;' +
+            '#' + TUNE_OVERLAY_ID + ' .liteTvPill { pointer-events: auto; background: rgba(14, 16, 20, 0.6); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }' +
+            '#' + TUNE_OVERLAY_ID + ' .liteTvPill:hover { background: rgba(255,255,255,0.22); }' +
+            '#' + NEXT_OVERLAY_ID + ' { bottom: 16%; right: 4%; }' +
+            '.liteTvNextCard {' +
+            '  background: rgba(16, 18, 23, 0.72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);' +
+            '  border: 1px solid rgba(255,255,255,0.12); border-radius: 1em;' +
+            '  padding: 1.05em 1.25em 1.15em; min-width: 19em; max-width: 26em; text-align: left;' +
+            '  box-shadow: 0 0.6em 2.2em rgba(0,0,0,0.55);' +
             '}' +
-            '#' + NEXT_OVERLAY_ID + ' { bottom: 18%; right: 4%; text-align: right; }' +
-            '#' + NEXT_OVERLAY_ID + ' .liteTvNextTitle {' +
-            '  background: rgba(0, 0, 0, 0.55); border-radius: 0.3em; padding: 0.6em 1em;' +
-            '  display: inline-block; text-shadow: 0 0.05em 0.3em rgba(0,0,0,0.8);' +
-            '}' +
-            '#' + NEXT_OVERLAY_ID + ' .liteTvNextTitle b { display: block; font-size: 1.15em; }' +
-            '#' + NEXT_OVERLAY_ID + ' .liteTvButtons { display: flex; gap: 0.5em; justify-content: flex-end; }' +
-            '#' + NEXT_OVERLAY_ID + ' button.liteTvActive { outline: 0.15em solid #00a4dc; }';
+            '.liteTvEyebrow { font-size: 0.7em; letter-spacing: 0.22em; text-transform: uppercase; opacity: 0.65; margin-bottom: 0.45em; }' +
+            '.liteTvNextName { font-size: 1.18em; font-weight: 700; line-height: 1.3; margin-bottom: 0.2em; }' +
+            '.liteTvCountdownText { font-size: 0.85em; opacity: 0.7; margin-bottom: 0.9em; font-variant-numeric: tabular-nums; }' +
+            '.liteTvNextButtons { display: flex; gap: 0.55em; flex-wrap: wrap; }' +
+            '.liteTvNextButtons .liteTvPill { pointer-events: auto; }' +
+            '.liteTvCountdownBar { height: 0.2em; border-radius: 999px; background: rgba(255,255,255,0.16); margin-top: 1em; overflow: hidden; }' +
+            '.liteTvCountdownBar > div { height: 100%; background: linear-gradient(90deg, #00a4dc, #4dd0ff); transition: width 1s linear; }' +
+
+            /* -------------------------------------------------- pause panel ---- */
+            '#' + PAUSE_PANEL_ID + ' { pointer-events: auto; margin-top: 1.3em; font-size: clamp(11px, 1.1vw, 17px); }' +
+            '#' + PAUSE_PANEL_ID + '.liteTvPauseFloating { position: absolute; left: 4%; bottom: 14%; z-index: 1000; margin: 0; }' +
+            '#' + PAUSE_PANEL_ID + ' .liteTvPauseMeta { font-size: 0.9em; opacity: 0.85; line-height: 1.55; margin-bottom: 0.95em; }' +
+            '#' + PAUSE_PANEL_ID + ' .liteTvPauseMeta .liteTvEpgTime { color: #4dd0ff; margin-right: 0.4em; font-variant-numeric: tabular-nums; }';
         document.head.appendChild(style);
     }
 
@@ -137,19 +205,17 @@
     function tuneIn(channelId) {
         closeGuide();
         return apiGet('LiteTv/Channels/' + channelId + '/Now?upcoming=1').then(function (now) {
-            var fetchedAt = Date.now();
-            var offsetTicks = now.OffsetTicks + (Date.now() - fetchedAt) * 10000;
-            return playItem(now.Current.ItemId, offsetTicks).then(function (sessionId) {
+            return playItem(now.Current.ItemId, now.OffsetTicks).then(function (sessionId) {
                 tuned = {
                     channelId: channelId,
                     channelName: now.ChannelName,
                     sessionId: sessionId,
                     mode: 'schedule',
                     currentItemId: now.Current.ItemId,
-                    currentSeriesId: now.Current.SeriesId || null,
-                    startedFresh: false
+                    currentSeriesId: now.Current.SeriesId || null
                 };
                 chainInProgress = true; // survives the osd transition
+                document.body.classList.add(TUNED_BODY_CLASS);
                 apiPost('LiteTv/Tuned?sessionId=' + encodeURIComponent(sessionId) + '&channelId=' + channelId)
                     .catch(function () { /* hygiene is best-effort */ });
                 showTuneOverlay(now);
@@ -167,8 +233,10 @@
         tuned = null;
         chainInProgress = false;
         stopWatcher();
+        document.body.classList.remove(TUNED_BODY_CLASS);
         removeOverlay(TUNE_OVERLAY_ID);
         removeOverlay(NEXT_OVERLAY_ID);
+        removePausePanel();
         if (sessionId) {
             apiDelete('LiteTv/Tuned?sessionId=' + encodeURIComponent(sessionId)).catch(function () { });
         }
@@ -199,24 +267,19 @@
         bug.textContent = '📺 ' + now.ChannelName;
         overlay.appendChild(bug);
 
-        var restart = document.createElement('button');
-        restart.textContent = '▶ Von Anfang an';
-        restart.addEventListener('click', function () {
+        overlay.appendChild(makeButton('↺ Von Anfang an', 'liteTvPill', function () {
             removeOverlay(TUNE_OVERLAY_ID);
             if (!tuned) {
                 return;
             }
             tuned.mode = 'offschedule';
-            tuned.startedFresh = true;
             chainInProgress = true;
             playItem(tuned.currentItemId, 0).catch(function (err) {
                 console.warn('liteTv: restart failed', err);
             });
-        });
-        overlay.appendChild(restart);
+        }));
 
-        var container = getOsdContainer();
-        container.appendChild(overlay);
+        getOsdContainer().appendChild(overlay);
         void overlay.offsetWidth;
         overlay.classList.add('liteTvVisible');
 
@@ -224,6 +287,134 @@
             overlay.classList.remove('liteTvVisible');
             setTimeout(function () { removeOverlay(TUNE_OVERLAY_ID); }, 600);
         }, 8000);
+    }
+
+    // ------------------------------------------------------------ pause panel
+
+    // Shown while playback is paused: inside Jellyfin Enhanced's custom pause
+    // screen when that is active (#pause-screen-content), otherwise floating over
+    // the OSD. Tells the viewer they are watching a LiteTV channel and offers the
+    // mode options without waiting for the end-of-episode overlay.
+    function removePausePanel() {
+        removeOverlay(PAUSE_PANEL_ID);
+    }
+
+    function ensurePausePanel() {
+        if (!tuned) {
+            return;
+        }
+        var jeActive = document.documentElement.classList.contains('pause-screen-active');
+        var jeContent = jeActive ? document.getElementById('pause-screen-content') : null;
+        var host = jeContent || getOsdContainer();
+
+        var panel = document.getElementById(PAUSE_PANEL_ID);
+        if (panel && panel.parentNode !== host) {
+            panel.parentNode.removeChild(panel);
+            panel = null;
+        }
+        if (panel) {
+            return;
+        }
+
+        ensureStyle();
+        panel = document.createElement('div');
+        panel.id = PAUSE_PANEL_ID;
+        panel.className = 'liteTvNextCard' + (jeContent ? '' : ' liteTvPauseFloating');
+        ['click', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend'].forEach(function (evt) {
+            panel.addEventListener(evt, function (e) { e.stopPropagation(); });
+        });
+
+        var eyebrow = document.createElement('div');
+        eyebrow.className = 'liteTvEyebrow';
+        eyebrow.textContent = 'Du siehst gerade';
+        panel.appendChild(eyebrow);
+
+        var name = document.createElement('div');
+        name.className = 'liteTvNextName';
+        name.textContent = '📺 ' + (tuned.channelName || 'TV-Sender');
+        panel.appendChild(name);
+
+        var meta = document.createElement('div');
+        meta.className = 'liteTvPauseMeta';
+        panel.appendChild(meta);
+
+        var buttons = document.createElement('div');
+        buttons.className = 'liteTvNextButtons';
+        panel.appendChild(buttons);
+
+        var bingeBtn = null;
+        var scheduleBtn = makeButton('Programm folgen', 'liteTvPill', function () {
+            if (tuned) {
+                tuned.mode = 'schedule';
+            }
+            refresh();
+        });
+
+        function refresh() {
+            if (!tuned) {
+                return;
+            }
+            var binging = tuned.mode === 'binge';
+            scheduleBtn.classList.toggle('liteTvPillActive', !binging);
+            if (bingeBtn) {
+                bingeBtn.classList.toggle('liteTvPillActive', binging);
+            }
+        }
+
+        if (tuned.currentSeriesId) {
+            bingeBtn = makeButton('Serie weiterschauen', 'liteTvPill', function () {
+                if (tuned) {
+                    tuned.mode = 'binge';
+                }
+                refresh();
+            });
+            buttons.appendChild(bingeBtn);
+        }
+        buttons.appendChild(scheduleBtn);
+
+        buttons.appendChild(makeButton('↺ Von Anfang an', 'liteTvPill', function () {
+            if (!tuned) {
+                return;
+            }
+            tuned.mode = 'offschedule';
+            chainInProgress = true;
+            removePausePanel();
+            playItem(tuned.currentItemId, 0).catch(function (err) {
+                console.warn('liteTv: restart failed', err);
+            });
+        }));
+
+        buttons.appendChild(makeButton('Sender verlassen', 'liteTvPill', function () {
+            removePausePanel();
+            untune();
+        }));
+
+        refresh();
+        host.appendChild(panel);
+
+        apiGet('LiteTv/Channels/' + tuned.channelId + '/Now?upcoming=8').then(function (now) {
+            if (!tuned || !document.getElementById(PAUSE_PANEL_ID)) {
+                return;
+            }
+            meta.innerHTML = '';
+            var next = resolveScheduleNext(now, tuned.currentItemId);
+            function line(prefix, text) {
+                var el = document.createElement('div');
+                var time = document.createElement('span');
+                time.className = 'liteTvEpgTime';
+                time.textContent = prefix;
+                el.appendChild(time);
+                el.appendChild(document.createTextNode(text));
+                meta.appendChild(el);
+            }
+            var current = now.Current.ItemId === tuned.currentItemId ? now.Current : null;
+            if (current) {
+                line('Jetzt', (current.SeriesName ? current.SeriesName + ': ' : '') + current.Name);
+            }
+            if (next.program) {
+                line('Danach', (next.program.SeriesName ? next.program.SeriesName + ': ' : '') + next.program.Name);
+            }
+        }).catch(function () { });
     }
 
     // ------------------------------------------------------- end-of-item logic
@@ -250,7 +441,20 @@
             if (!video || !video.duration || isNaN(video.duration)) {
                 return;
             }
+
+            if (video.paused && !video.ended) {
+                ensurePausePanel();
+            } else {
+                removePausePanel();
+            }
+
             var remaining = video.duration - video.currentTime;
+
+            // Seeking back out of the window re-arms the overlay for the next approach.
+            if (overlayShown && remaining > NEXT_OVERLAY_WINDOW_SECONDS + 10) {
+                overlayShown = false;
+                removeOverlay(NEXT_OVERLAY_ID);
+            }
 
             if (remaining <= NEXT_OVERLAY_WINDOW_SECONDS && !overlayShown) {
                 overlayShown = true;
@@ -270,13 +474,30 @@
         }, 500);
     }
 
+    // Determines the follow-up program relative to the item the viewer is actually
+    // watching. The viewer may be ahead of the wall-clock schedule (skipping is
+    // allowed), so the reference item is searched in the lineup: the follow-up is
+    // whatever comes after it. Only when the reference item is no longer in the
+    // lineup (the clock moved past it, or after a binge detour) do we rejoin the
+    // live position.
+    function resolveScheduleNext(now, referenceItemId) {
+        var lineup = [now.Current].concat(now.Upcoming || []);
+        for (var i = 0; i < lineup.length; i++) {
+            if (lineup[i].ItemId === referenceItemId && i + 1 < lineup.length) {
+                // Reference item has not fully aired yet per the clock, so the
+                // viewer finished it early: its follow-up starts from the top.
+                return { program: lineup[i + 1], offsetTicks: 0, live: false };
+            }
+        }
+        return { program: now.Current, offsetTicks: now.OffsetTicks, live: true };
+    }
+
     function prepareNext() {
         if (!tuned) {
             return Promise.resolve(null);
         }
-        var schedulePromise = apiGet('LiteTv/Channels/' + tuned.channelId + '/Now?upcoming=1').then(function (now) {
-            // Near the end of the current item, upcoming[0] is the follow-up program.
-            return (now.Upcoming && now.Upcoming[0]) || null;
+        var schedulePromise = apiGet('LiteTv/Channels/' + tuned.channelId + '/Now?upcoming=8').then(function (now) {
+            return resolveScheduleNext(now, tuned.currentItemId).program;
         }).catch(function () { return null; });
 
         var bingePromise = Promise.resolve(null);
@@ -307,15 +528,37 @@
         var overlay = document.createElement('div');
         overlay.id = NEXT_OVERLAY_ID;
 
-        var title = document.createElement('div');
-        title.className = 'liteTvNextTitle';
-        overlay.appendChild(title);
+        var card = document.createElement('div');
+        card.className = 'liteTvNextCard';
+        overlay.appendChild(card);
+
+        var eyebrow = document.createElement('div');
+        eyebrow.className = 'liteTvEyebrow';
+        eyebrow.textContent = 'Als Nächstes';
+        card.appendChild(eyebrow);
+
+        var name = document.createElement('div');
+        name.className = 'liteTvNextName';
+        card.appendChild(name);
+
+        var countdownText = document.createElement('div');
+        countdownText.className = 'liteTvCountdownText';
+        card.appendChild(countdownText);
 
         var buttons = document.createElement('div');
-        buttons.className = 'liteTvButtons';
-        overlay.appendChild(buttons);
+        buttons.className = 'liteTvNextButtons';
+        card.appendChild(buttons);
 
-        var scheduleBtn = document.createElement('button');
+        var bar = document.createElement('div');
+        bar.className = 'liteTvCountdownBar';
+        var barFill = document.createElement('div');
+        barFill.style.width = '100%';
+        bar.appendChild(barFill);
+        card.appendChild(bar);
+
+        var totalSeconds = countdownSeconds;
+        var secondsLeft = countdownSeconds;
+        var scheduleBtn;
         var bingeBtn = null;
 
         function scheduleName() {
@@ -327,53 +570,36 @@
                 : info.schedule.Name;
         }
 
-        function updateTitle(secondsLeft) {
-            var name = tuned && tuned.mode === 'binge' && info.binge ? info.binge.Name : scheduleName();
-            title.innerHTML = '';
-            var b = document.createElement('b');
-            b.textContent = 'Als Nächstes: ' + name;
-            var small = document.createElement('span');
-            small.textContent = secondsLeft > 0 ? 'startet in ' + secondsLeft + ' s' : 'startet gleich';
-            title.appendChild(b);
-            title.appendChild(small);
-        }
-
-        function refreshActive() {
-            if (!tuned) {
-                return;
-            }
-            scheduleBtn.classList.toggle('liteTvActive', tuned.mode !== 'binge');
+        function update() {
+            var binging = tuned && tuned.mode === 'binge' && info.binge;
+            name.textContent = binging ? info.binge.Name : scheduleName();
+            countdownText.textContent = secondsLeft > 0 ? 'startet in ' + secondsLeft + ' Sekunden' : 'startet gleich';
+            barFill.style.width = Math.max(0, (secondsLeft / totalSeconds) * 100).toFixed(1) + '%';
+            scheduleBtn.classList.toggle('liteTvPillActive', !binging);
             if (bingeBtn) {
-                bingeBtn.classList.toggle('liteTvActive', tuned.mode === 'binge');
+                bingeBtn.classList.toggle('liteTvPillActive', !!binging);
             }
         }
 
         if (info.binge && tuned && tuned.currentSeriesId) {
-            bingeBtn = document.createElement('button');
-            bingeBtn.textContent = 'Serie weiterschauen';
-            bingeBtn.addEventListener('click', function () {
+            bingeBtn = makeButton('Serie weiterschauen', 'liteTvPill', function () {
                 if (tuned) {
                     tuned.mode = 'binge';
                 }
-                refreshActive();
-                updateTitle(secondsLeft);
+                update();
             });
             buttons.appendChild(bingeBtn);
         }
 
-        scheduleBtn.textContent = 'Programm folgen';
-        scheduleBtn.addEventListener('click', function () {
+        scheduleBtn = makeButton('Programm folgen', 'liteTvPill', function () {
             if (tuned) {
                 tuned.mode = 'schedule';
             }
-            refreshActive();
-            updateTitle(secondsLeft);
+            update();
         });
         buttons.appendChild(scheduleBtn);
 
-        var secondsLeft = countdownSeconds;
-        updateTitle(secondsLeft);
-        refreshActive();
+        update();
 
         var countdown = setInterval(function () {
             secondsLeft--;
@@ -381,7 +607,7 @@
                 clearInterval(countdown);
                 return;
             }
-            updateTitle(secondsLeft);
+            update();
         }, 1000);
 
         getOsdContainer().appendChild(overlay);
@@ -404,13 +630,17 @@
             return;
         }
 
-        // Follow the schedule: re-resolve so we stay clock-accurate even after
-        // off-schedule detours (restart from beginning, binge episodes).
+        // Follow the schedule. The just-ended item is the reference: if the viewer
+        // skipped ahead and finished early, the follow-up program starts from the
+        // beginning (running ahead of the live schedule); otherwise we rejoin the
+        // live position.
         tuned.mode = 'schedule';
-        apiGet('LiteTv/Channels/' + tuned.channelId + '/Now?upcoming=1').then(function (now) {
-            tuned.currentItemId = now.Current.ItemId;
-            tuned.currentSeriesId = now.Current.SeriesId || null;
-            return playItem(now.Current.ItemId, now.OffsetTicks);
+        var endedItemId = tuned.currentItemId;
+        apiGet('LiteTv/Channels/' + tuned.channelId + '/Now?upcoming=8').then(function (now) {
+            var next = resolveScheduleNext(now, endedItemId);
+            tuned.currentItemId = next.program.ItemId;
+            tuned.currentSeriesId = next.program.SeriesId || null;
+            return playItem(next.program.ItemId, next.offsetTicks);
         }).catch(function (err) {
             console.warn('liteTv: schedule next failed', err);
             untune();
@@ -419,14 +649,39 @@
 
     // ------------------------------------------------------------------ guide
 
+    function cardImageUrl(program) {
+        if (!program) {
+            return null;
+        }
+        var id = program.SeriesId || program.ItemId;
+        try {
+            return window.ApiClient.getUrl('Items/' + id + '/Images/Backdrop/0', { maxWidth: 640, quality: 80 });
+        } catch (e) {
+            return null;
+        }
+    }
+
     function buildChannelCard(channel) {
         var card = document.createElement('div');
         card.className = 'liteTvCard';
 
-        var name = document.createElement('div');
-        name.className = 'liteTvChannelName';
-        name.textContent = '📺 ' + channel.Name;
-        card.appendChild(name);
+        var imageUrl = cardImageUrl(channel.Now);
+        if (imageUrl) {
+            card.style.backgroundImage = 'url("' + imageUrl + '")';
+        }
+
+        var shade = document.createElement('div');
+        shade.className = 'liteTvCardShade';
+        card.appendChild(shade);
+
+        var chip = document.createElement('div');
+        chip.className = 'liteTvChannelChip';
+        chip.textContent = '📺 ' + channel.Name;
+        card.appendChild(chip);
+
+        var body = document.createElement('div');
+        body.className = 'liteTvCardBody';
+        card.appendChild(body);
 
         var now = document.createElement('div');
         now.className = 'liteTvNow';
@@ -435,7 +690,7 @@
         } else {
             now.textContent = 'Sendepause';
         }
-        card.appendChild(now);
+        body.appendChild(now);
 
         if (channel.Now) {
             var start = new Date(channel.Now.StartUtc).getTime();
@@ -443,19 +698,19 @@
             var pct = end > start ? Math.min(100, Math.max(0, ((Date.now() - start) / (end - start)) * 100)) : 0;
             var progress = document.createElement('div');
             progress.className = 'liteTvProgress';
-            var bar = document.createElement('div');
-            bar.style.width = pct.toFixed(1) + '%';
-            progress.appendChild(bar);
-            card.appendChild(progress);
+            var barEl = document.createElement('div');
+            barEl.style.width = pct.toFixed(1) + '%';
+            progress.appendChild(barEl);
+            body.appendChild(progress);
         }
 
-        var next = document.createElement('div');
-        next.className = 'liteTvNext';
         if (channel.Next) {
-            next.textContent = 'Danach ' + formatTime(channel.Next.StartUtc) + ': '
+            var next = document.createElement('div');
+            next.className = 'liteTvNext';
+            next.textContent = 'Danach ' + formatTime(channel.Next.StartUtc) + ' · '
                 + (channel.Next.SeriesName ? channel.Next.SeriesName + ': ' : '') + channel.Next.Name;
+            body.appendChild(next);
         }
-        card.appendChild(next);
 
         card.addEventListener('click', function () {
             tuneIn(channel.Id);
@@ -538,41 +793,15 @@
 
                 var actions = document.createElement('div');
                 actions.className = 'liteTvGuideActions';
-                var playBtn = document.createElement('button');
-                playBtn.textContent = '▶ Ansehen';
-                playBtn.addEventListener('click', function () {
-                    tuneIn(channel.Id);
-                });
-                actions.appendChild(playBtn);
-
-                var castBtn = document.createElement('button');
-                castBtn.className = 'liteTvSecondary';
-                castBtn.textContent = 'Auf Gerät…';
-                actions.appendChild(castBtn);
-                head.appendChild(actions);
-                row.appendChild(head);
-
-                var epg = document.createElement('div');
-                epg.className = 'liteTvEpg';
-                if (channel.Now) {
-                    var nowLine = document.createElement('div');
-                    nowLine.textContent = 'Jetzt: ' + (channel.Now.SeriesName ? channel.Now.SeriesName + ': ' : '') + channel.Now.Name
-                        + ' (bis ' + formatTime(channel.Now.EndUtc) + ')';
-                    epg.appendChild(nowLine);
-                }
-                if (channel.Next) {
-                    var nextLine = document.createElement('div');
-                    nextLine.textContent = 'Danach ' + formatTime(channel.Next.StartUtc) + ': '
-                        + (channel.Next.SeriesName ? channel.Next.SeriesName + ': ' : '') + channel.Next.Name;
-                    epg.appendChild(nextLine);
-                }
-                row.appendChild(epg);
 
                 var devices = document.createElement('div');
                 devices.className = 'liteTvDevices';
-                row.appendChild(devices);
 
-                castBtn.addEventListener('click', function () {
+                actions.appendChild(makeButton('▶ Ansehen', 'liteTvPill liteTvPillPrimary', function () {
+                    tuneIn(channel.Id);
+                }));
+
+                actions.appendChild(makeButton('Auf Gerät…', 'liteTvPill', function () {
                     if (devices.style.display === 'block') {
                         devices.style.display = 'none';
                         return;
@@ -592,24 +821,49 @@
                             return;
                         }
                         targets.forEach(function (s) {
-                            var btn = document.createElement('button');
-                            btn.textContent = (s.DeviceName || s.Client || 'Gerät') + (s.UserName ? ' – ' + s.UserName : '');
-                            btn.addEventListener('click', function () {
-                                apiPost('LiteTv/Channels/' + channel.Id + '/PlayOn/' + encodeURIComponent(s.Id)).then(function () {
-                                    closeGuide();
-                                }).catch(function (err) {
-                                    console.warn('liteTv: play on device failed', err);
-                                });
-                            });
-                            devices.appendChild(btn);
+                            devices.appendChild(makeButton(
+                                (s.DeviceName || s.Client || 'Gerät') + (s.UserName ? ' – ' + s.UserName : ''),
+                                'liteTvPill',
+                                function () {
+                                    apiPost('LiteTv/Channels/' + channel.Id + '/PlayOn/' + encodeURIComponent(s.Id)).then(function () {
+                                        closeGuide();
+                                    }).catch(function (err) {
+                                        console.warn('liteTv: play on device failed', err);
+                                    });
+                                }));
                         });
                     });
-                });
+                }));
 
+                head.appendChild(actions);
+                row.appendChild(head);
+
+                var epg = document.createElement('div');
+                epg.className = 'liteTvEpg';
+                function epgLine(prefix, program) {
+                    var line = document.createElement('div');
+                    var time = document.createElement('span');
+                    time.className = 'liteTvEpgTime';
+                    time.textContent = prefix;
+                    line.appendChild(time);
+                    line.appendChild(document.createTextNode(
+                        (program.SeriesName ? program.SeriesName + ': ' : '') + program.Name));
+                    return line;
+                }
+                if (channel.Now) {
+                    epg.appendChild(epgLine('Jetzt', channel.Now));
+                }
+                if (channel.Next) {
+                    epg.appendChild(epgLine(formatTime(channel.Next.StartUtc), channel.Next));
+                }
+                row.appendChild(epg);
+                row.appendChild(devices);
                 panel.appendChild(row);
             });
 
             document.body.appendChild(backdrop);
+            void backdrop.offsetWidth;
+            backdrop.classList.add('liteTvVisible');
         }).catch(function (err) {
             console.debug('liteTv: guide not available', err);
         });
@@ -687,6 +941,7 @@
             stopWatcher();
             removeOverlay(TUNE_OVERLAY_ID);
             removeOverlay(NEXT_OVERLAY_ID);
+            removePausePanel();
         }
     });
 })();

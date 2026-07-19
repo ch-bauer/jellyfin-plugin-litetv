@@ -29,6 +29,12 @@
                     </label>
                 </div>
 
+                <h3 style="margin-top: 1.5em;">Suggested channels</h3>
+                <div class="fieldDescription" style="margin-bottom: 0.6em;">
+                    Based on the media in your library. Adding a suggestion creates a channel you can still edit below.
+                </div>
+                <div class="paperList" id="SuggestionList" style="margin-bottom: 1.5em;"></div>
+
                 <h3 style="margin-top: 1.5em;">Channels</h3>
 
                 <div class="selectContainer">
@@ -174,6 +180,71 @@
                 });
             }
 
+            function newGuid() {
+                return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                    var r = Math.random() * 16 | 0;
+                    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+                });
+            }
+
+            function loadSuggestions() {
+                var list = q('#SuggestionList');
+                list.innerHTML = '<div class="listItem">Analyzing library…</div>';
+                ApiClient.fetch({ url: ApiClient.getUrl('LiteTv/Suggestions'), type: 'GET', dataType: 'json' })
+                    .then(function (suggestions) {
+                        list.innerHTML = '';
+                        if (!suggestions.length) {
+                            list.innerHTML = '<div class="listItem">No suggestions right now — all ideas already exist as channels.</div>';
+                            return;
+                        }
+                        suggestions.forEach(function (s) {
+                            var row = document.createElement('div');
+                            row.className = 'listItem';
+                            row.style.display = 'flex';
+                            row.style.alignItems = 'center';
+                            row.style.gap = '0.6em';
+
+                            var label = document.createElement('div');
+                            label.style.flexGrow = '1';
+                            var title = document.createElement('div');
+                            title.textContent = '📺 ' + s.Name;
+                            var desc = document.createElement('div');
+                            desc.className = 'fieldDescription';
+                            desc.textContent = s.Description;
+                            label.appendChild(title);
+                            label.appendChild(desc);
+                            row.appendChild(label);
+
+                            var add = document.createElement('button');
+                            add.setAttribute('is', 'emby-button');
+                            add.type = 'button';
+                            add.className = 'raised emby-button';
+                            add.textContent = 'Add';
+                            add.addEventListener('click', function () {
+                                applyEditorToChannel();
+                                config.Channels.push({
+                                    Id: newGuid(),
+                                    Name: s.Name,
+                                    Enabled: true,
+                                    AnchorUtc: new Date().toISOString(),
+                                    Sources: s.Sources.map(function (src) {
+                                        return { Type: src.Type, ItemId: src.ItemId, Name: src.Name };
+                                    })
+                                });
+                                currentIndex = config.Channels.length - 1;
+                                renderChannelSelect();
+                                renderEditor();
+                                row.remove();
+                            });
+                            row.appendChild(add);
+                            list.appendChild(row);
+                        });
+                    })
+                    .catch(function () {
+                        list.innerHTML = '<div class="listItem">Suggestions are unavailable.</div>';
+                    });
+            }
+
             function typeForItem(item) {
                 if (item.Type === 'Series') { return 'Series'; }
                 if (item.Type === 'BoxSet') { return 'Collection'; }
@@ -245,6 +316,7 @@
                         currentIndex = config.Channels.length ? 0 : -1;
                         renderChannelSelect();
                         renderEditor();
+                        loadSuggestions();
                         Dashboard.hideLoadingMsg();
                     });
                 });
@@ -258,18 +330,12 @@
             q('#AddChannel').addEventListener('click', function () {
                 applyEditorToChannel();
                 config.Channels.push({
-                    Id: null, // server assigns via default ctor when null? keep explicit:
+                    Id: newGuid(),
                     Name: 'New channel',
                     Enabled: true,
                     AnchorUtc: new Date().toISOString(),
                     Sources: []
                 });
-                // Generate a client-side GUID so the channel is addressable immediately.
-                config.Channels[config.Channels.length - 1].Id =
-                    'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-                        var r = Math.random() * 16 | 0;
-                        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-                    });
                 currentIndex = config.Channels.length - 1;
                 renderChannelSelect();
                 renderEditor();

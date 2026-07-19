@@ -19,6 +19,7 @@
     var tuned = null;
     var watchTimer = null;
     var chainInProgress = false;
+    var homeRowObserver = null;
 
     function apiGet(path) {
         return window.ApiClient.fetch({ url: window.ApiClient.getUrl(path), type: 'GET', dataType: 'json' });
@@ -177,8 +178,11 @@
             '.liteTvCountdownBar > div { height: 100%; background: linear-gradient(90deg, #00a4dc, #4dd0ff); transition: width 1s linear; }' +
 
             /* -------------------------------------------------- pause panel ---- */
-            '#' + PAUSE_PANEL_ID + ' { pointer-events: auto; margin-top: 1.3em; font-size: clamp(11px, 1.1vw, 17px); }' +
+            '#' + PAUSE_PANEL_ID + ' { pointer-events: auto; font-size: clamp(11px, 1.1vw, 17px); }' +
             '#' + PAUSE_PANEL_ID + '.liteTvPauseFloating { position: absolute; left: 4%; bottom: 14%; z-index: 1000; margin: 0; }' +
+            /* Inside Jellyfin Enhanced's pause screen everything is absolutely positioned; */
+            /* top-right is free (logo/details/plot live on the left, the disc sits mid-right). */
+            '#pause-screen-content #' + PAUSE_PANEL_ID + ' { position: absolute; right: 5vw; top: 7vh; margin: 0; z-index: 5; }' +
             '#' + PAUSE_PANEL_ID + ' .liteTvPauseMeta { font-size: 0.9em; opacity: 0.85; line-height: 1.55; margin-bottom: 0.95em; }' +
             '#' + PAUSE_PANEL_ID + ' .liteTvPauseMeta .liteTvEpgTime { color: #4dd0ff; margin-right: 0.4em; font-variant-numeric: tabular-nums; }';
         document.head.appendChild(style);
@@ -303,8 +307,17 @@
         if (!tuned) {
             return;
         }
+
+        // With Jellyfin Enhanced's custom pause screen installed, the panel is
+        // shown only together with that screen (and inside it), so the two stay
+        // in sync. Without it, the panel floats over the OSD while paused.
+        var jeInstalled = !!document.getElementById('pause-screen-style');
         var jeActive = document.documentElement.classList.contains('pause-screen-active');
         var jeContent = jeActive ? document.getElementById('pause-screen-content') : null;
+        if (jeInstalled && !jeContent) {
+            removePausePanel();
+            return;
+        }
         var host = jeContent || getOsdContainer();
 
         var panel = document.getElementById(PAUSE_PANEL_ID);
@@ -369,8 +382,9 @@
                 refresh();
             });
             buttons.appendChild(bingeBtn);
+            // The schedule/binge toggle only exists when there is a series to binge.
+            buttons.appendChild(scheduleBtn);
         }
-        buttons.appendChild(scheduleBtn);
 
         buttons.appendChild(makeButton('↺ Von Anfang an', 'liteTvPill', function () {
             if (!tuned) {
@@ -558,8 +572,11 @@
 
         var totalSeconds = countdownSeconds;
         var secondsLeft = countdownSeconds;
-        var scheduleBtn;
+        var scheduleBtn = null;
         var bingeBtn = null;
+        // Without a series to continue there is no real choice: show only what
+        // comes next, no buttons.
+        var hasChoice = !!(info.binge && tuned && tuned.currentSeriesId);
 
         function scheduleName() {
             if (!info.schedule) {
@@ -575,13 +592,15 @@
             name.textContent = binging ? info.binge.Name : scheduleName();
             countdownText.textContent = secondsLeft > 0 ? 'startet in ' + secondsLeft + ' Sekunden' : 'startet gleich';
             barFill.style.width = Math.max(0, (secondsLeft / totalSeconds) * 100).toFixed(1) + '%';
-            scheduleBtn.classList.toggle('liteTvPillActive', !binging);
+            if (scheduleBtn) {
+                scheduleBtn.classList.toggle('liteTvPillActive', !binging);
+            }
             if (bingeBtn) {
                 bingeBtn.classList.toggle('liteTvPillActive', !!binging);
             }
         }
 
-        if (info.binge && tuned && tuned.currentSeriesId) {
+        if (hasChoice) {
             bingeBtn = makeButton('Serie weiterschauen', 'liteTvPill', function () {
                 if (tuned) {
                     tuned.mode = 'binge';
@@ -589,15 +608,17 @@
                 update();
             });
             buttons.appendChild(bingeBtn);
-        }
 
-        scheduleBtn = makeButton('Programm folgen', 'liteTvPill', function () {
-            if (tuned) {
-                tuned.mode = 'schedule';
-            }
-            update();
-        });
-        buttons.appendChild(scheduleBtn);
+            scheduleBtn = makeButton('Programm folgen', 'liteTvPill', function () {
+                if (tuned) {
+                    tuned.mode = 'schedule';
+                }
+                update();
+            });
+            buttons.appendChild(scheduleBtn);
+        } else {
+            buttons.style.display = 'none';
+        }
 
         update();
 
@@ -745,6 +766,18 @@
             });
             section.appendChild(cards);
             container.appendChild(section);
+
+            // The stock home sections render asynchronously after us; keep the TV
+            // row pinned to the bottom of the page as they appear.
+            if (homeRowObserver) {
+                homeRowObserver.disconnect();
+            }
+            homeRowObserver = new MutationObserver(function () {
+                if (section.parentNode === container && container.lastElementChild !== section) {
+                    container.appendChild(section);
+                }
+            });
+            homeRowObserver.observe(container, { childList: true });
         }).catch(function (err) {
             console.debug('liteTv: guide not available', err);
         });

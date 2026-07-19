@@ -1,6 +1,6 @@
 {
   "category": "General",
-  "changelog": "Overlay buttons no longer toggle play/pause; Jellyfin's Next Up is suppressed while tuned; watch state is now fully untouched (progress reverts continuously); skipping ahead advances to the next program; earlier end-of-episode overlay; pause panel with channel info and options (integrates with Jellyfin Enhanced's pause screen); channel suggestions from the library in the settings; polished visuals; plugin icon.",
+  "changelog": "TV row now stays at the bottom of the home screen; the pause panel is synced to Jellyfin Enhanced's pause screen (shown only together with it, positioned top-right); the end-of-episode overlay hides its buttons when there is no series to continue.",
   "description": "Lightweight virtual TV channels: deterministic schedules over your own library, tuned in via normal direct playback at the live position. No transcoding, no tuner emulation.",
   "guid": "13953c97-f5a0-4713-8d4c-96b5369e5791",
   "imageUrl": "https://raw.githubusercontent.com/ch-bauer/jellyfin-plugin-litetv/main/images/icon.png",
@@ -9,7 +9,7 @@
   "owner": "Christian",
   "targetAbi": "10.11.0.0",
   "timestamp": "2026-07-19T00:00:00.000Z",
-  "version": "1.0.1.0",
+  "version": "1.0.2.0",
   "status": "Active",
   "autoUpdate": false
 }

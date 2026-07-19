@@ -1,0 +1,8 @@
+bin/
+obj/
+publish/
+package/
+*.zip
+*.user
+.vs/
+.claude

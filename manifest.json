@@ -1,0 +1,12 @@
+[
+  {
+    "guid": "13953c97-f5a0-4713-8d4c-96b5369e5791",
+    "name": "LiteTV Channels",
+    "description": "Lightweight virtual TV channels: deterministic schedules over your own library, tuned in via normal direct playback at the live position. No transcoding, no tuner emulation.",
+    "overview": "TV channels from your library, without transcoding.",
+    "owner": "Christian",
+    "category": "General",
+    "imageUrl": "https://raw.githubusercontent.com/ch-bauer/jellyfin-plugin-litetv/main/images/icon.png",
+    "versions": []
+  }
+]

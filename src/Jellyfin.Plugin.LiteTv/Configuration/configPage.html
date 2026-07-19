@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>LiteTV Channels</title>
+</head>
+<body>
+<div id="LiteTvConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox,emby-select">
+    <div data-role="content">
+        <div class="content-primary">
+            <form id="LiteTvConfigForm">
+                <div class="sectionTitleContainer flex align-items-center">
+                    <h2 class="sectionTitle">LiteTV Channels</h2>
+                </div>
+
+                <div class="checkboxContainer checkboxContainer-withDescription">
+                    <label>
+                        <input is="emby-checkbox" type="checkbox" id="EnableWebUi" />
+                        <span>Enable the TV UI in the web client</span>
+                    </label>
+                    <div class="fieldDescription checkboxFieldDescription">
+                        Adds the channel guide (📺 button in the header) and playback overlays. Web client only (browser and apps that embed the web UI). After installing or updating the plugin, hard-refresh the browser (Ctrl+F5) once.
+                    </div>
+                </div>
+
+                <div class="checkboxContainer">
+                    <label>
+                        <input is="emby-checkbox" type="checkbox" id="ShowHomeRow" />
+                        <span>Show a "TV" row with channel cards on the home screen</span>
+                    </label>
+                </div>
+
+                <h3 style="margin-top: 1.5em;">Channels</h3>
+
+                <div class="selectContainer">
+                    <select is="emby-select" id="ChannelSelect" label="Channel"></select>
+                </div>
+                <div style="margin-bottom: 1.5em;">
+                    <button is="emby-button" type="button" id="AddChannel" class="raised"><span>New channel</span></button>
+                    <button is="emby-button" type="button" id="DeleteChannel" class="raised"><span>Delete channel</span></button>
+                </div>
+
+                <div id="ChannelEditor" style="display: none;">
+                    <div class="inputContainer">
+                        <input is="emby-input" type="text" id="ChannelName" label="Channel name" />
+                    </div>
+
+                    <div class="checkboxContainer">
+                        <label>
+                            <input is="emby-checkbox" type="checkbox" id="ChannelEnabled" />
+                            <span>On air</span>
+                        </label>
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label>
+                            <input is="emby-checkbox" type="checkbox" id="ResetAnchor" />
+                            <span>Restart the schedule from the beginning on save</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">
+                            Sets the schedule zero point to now, so the loop starts over with the first entry.
+                        </div>
+                    </div>
+
+                    <h4>Program (played in order, looping forever)</h4>
+                    <div class="paperList" id="SourceList" style="margin-bottom: 1em;"></div>
+
+                    <div class="inputContainer">
+                        <input is="emby-input" type="text" id="ItemSearch" label="Add content (search movies, series, collections)" />
+                    </div>
+                    <div class="paperList" id="SearchResults" style="margin-bottom: 1em;"></div>
+                </div>
+
+                <div>
+                    <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                        <span>Save</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            var pluginId = "13953c97-f5a0-4713-8d4c-96b5369e5791";
+            var config = null;
+            var currentIndex = -1;
+            var searchTimer = null;
+
+            function q(sel) { return document.querySelector(sel); }
+
+            function currentChannel() {
+                return currentIndex >= 0 && config && config.Channels[currentIndex] ? config.Channels[currentIndex] : null;
+            }
+
+            function renderChannelSelect() {
+                var select = q('#ChannelSelect');
+                select.innerHTML = '';
+                (config.Channels || []).forEach(function (channel, i) {
+                    var option = document.createElement('option');
+                    option.value = i;
+                    option.textContent = channel.Name || '(unnamed)';
+                    select.appendChild(option);
+                });
+                if (currentIndex >= 0 && currentIndex < config.Channels.length) {
+                    select.value = currentIndex;
+                }
+            }
+
+            function renderEditor() {
+                var channel = currentChannel();
+                q('#ChannelEditor').style.display = channel ? 'block' : 'none';
+                if (!channel) {
+                    return;
+                }
+                q('#ChannelName').value = channel.Name || '';
+                q('#ChannelEnabled').checked = channel.Enabled !== false;
+                q('#ResetAnchor').checked = false;
+                renderSources();
+                q('#SearchResults').innerHTML = '';
+                q('#ItemSearch').value = '';
+            }
+
+            function renderSources() {
+                var channel = currentChannel();
+                var list = q('#SourceList');
+                list.innerHTML = '';
+                if (!channel || !channel.Sources || !channel.Sources.length) {
+                    var empty = document.createElement('div');
+                    empty.className = 'listItem';
+                    empty.textContent = 'No content yet. Search below to add movies, series or collections.';
+                    list.appendChild(empty);
+                    return;
+                }
+                channel.Sources.forEach(function (source, i) {
+                    var row = document.createElement('div');
+                    row.className = 'listItem';
+                    row.style.display = 'flex';
+                    row.style.alignItems = 'center';
+                    row.style.gap = '0.6em';
+
+                    var label = document.createElement('div');
+                    label.style.flexGrow = '1';
+                    label.textContent = (i + 1) + '. [' + source.Type + '] ' + (source.Name || source.ItemId);
+                    row.appendChild(label);
+
+                    [['↑', -1], ['↓', 1]].forEach(function (move) {
+                        var btn = document.createElement('button');
+                        btn.setAttribute('is', 'emby-button');
+                        btn.type = 'button';
+                        btn.className = 'raised emby-button';
+                        btn.textContent = move[0];
+                        btn.addEventListener('click', function () {
+                            var j = i + move[1];
+                            if (j < 0 || j >= channel.Sources.length) { return; }
+                            var tmp = channel.Sources[i];
+                            channel.Sources[i] = channel.Sources[j];
+                            channel.Sources[j] = tmp;
+                            renderSources();
+                        });
+                        row.appendChild(btn);
+                    });
+
+                    var remove = document.createElement('button');
+                    remove.setAttribute('is', 'emby-button');
+                    remove.type = 'button';
+                    remove.className = 'raised emby-button';
+                    remove.textContent = '✕';
+                    remove.addEventListener('click', function () {
+                        channel.Sources.splice(i, 1);
+                        renderSources();
+                    });
+                    row.appendChild(remove);
+                    list.appendChild(row);
+                });
+            }
+
+            function typeForItem(item) {
+                if (item.Type === 'Series') { return 'Series'; }
+                if (item.Type === 'BoxSet') { return 'Collection'; }
+                return 'Movie';
+            }
+
+            function runSearch(term) {
+                var results = q('#SearchResults');
+                if (!term || term.length < 2) {
+                    results.innerHTML = '';
+                    return;
+                }
+                ApiClient.getItems(ApiClient.getCurrentUserId(), {
+                    SearchTerm: term,
+                    IncludeItemTypes: 'Movie,Series,BoxSet',
+                    Recursive: true,
+                    Limit: 15,
+                    Fields: 'Type'
+                }).then(function (result) {
+                    results.innerHTML = '';
+                    (result.Items || []).forEach(function (item) {
+                        var row = document.createElement('div');
+                        row.className = 'listItem';
+                        row.style.display = 'flex';
+                        row.style.alignItems = 'center';
+                        row.style.gap = '0.6em';
+
+                        var label = document.createElement('div');
+                        label.style.flexGrow = '1';
+                        label.textContent = '[' + typeForItem(item) + '] ' + item.Name + (item.ProductionYear ? ' (' + item.ProductionYear + ')' : '');
+                        row.appendChild(label);
+
+                        var add = document.createElement('button');
+                        add.setAttribute('is', 'emby-button');
+                        add.type = 'button';
+                        add.className = 'raised emby-button';
+                        add.textContent = 'Add';
+                        add.addEventListener('click', function () {
+                            var channel = currentChannel();
+                            if (!channel) { return; }
+                            channel.Sources = channel.Sources || [];
+                            channel.Sources.push({ Type: typeForItem(item), ItemId: item.Id, Name: item.Name });
+                            renderSources();
+                        });
+                        row.appendChild(add);
+                        results.appendChild(row);
+                    });
+                });
+            }
+
+            function applyEditorToChannel() {
+                var channel = currentChannel();
+                if (!channel) { return; }
+                channel.Name = q('#ChannelName').value.trim() || 'Channel';
+                channel.Enabled = q('#ChannelEnabled').checked;
+                if (q('#ResetAnchor').checked) {
+                    channel.AnchorUtc = new Date().toISOString();
+                }
+            }
+
+            document.querySelector('#LiteTvConfigPage')
+                .addEventListener('pageshow', function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (loaded) {
+                        config = loaded;
+                        config.Channels = config.Channels || [];
+                        q('#EnableWebUi').checked = config.EnableWebUi !== false;
+                        q('#ShowHomeRow').checked = config.ShowHomeRow !== false;
+                        currentIndex = config.Channels.length ? 0 : -1;
+                        renderChannelSelect();
+                        renderEditor();
+                        Dashboard.hideLoadingMsg();
+                    });
+                });
+
+            q('#ChannelSelect').addEventListener('change', function () {
+                applyEditorToChannel();
+                currentIndex = parseInt(this.value, 10);
+                renderEditor();
+            });
+
+            q('#AddChannel').addEventListener('click', function () {
+                applyEditorToChannel();
+                config.Channels.push({
+                    Id: null, // server assigns via default ctor when null? keep explicit:
+                    Name: 'New channel',
+                    Enabled: true,
+                    AnchorUtc: new Date().toISOString(),
+                    Sources: []
+                });
+                // Generate a client-side GUID so the channel is addressable immediately.
+                config.Channels[config.Channels.length - 1].Id =
+                    'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                        var r = Math.random() * 16 | 0;
+                        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+                    });
+                currentIndex = config.Channels.length - 1;
+                renderChannelSelect();
+                renderEditor();
+            });
+
+            q('#DeleteChannel').addEventListener('click', function () {
+                if (currentIndex < 0) { return; }
+                config.Channels.splice(currentIndex, 1);
+                currentIndex = config.Channels.length ? 0 : -1;
+                renderChannelSelect();
+                renderEditor();
+            });
+
+            q('#ItemSearch').addEventListener('input', function () {
+                var term = this.value.trim();
+                if (searchTimer) { clearTimeout(searchTimer); }
+                searchTimer = setTimeout(function () { runSearch(term); }, 350);
+            });
+
+            document.querySelector('#LiteTvConfigForm')
+                .addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    Dashboard.showLoadingMsg();
+                    applyEditorToChannel();
+                    config.EnableWebUi = q('#EnableWebUi').checked;
+                    config.ShowHomeRow = q('#ShowHomeRow').checked;
+                    ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
+                        renderChannelSelect();
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                    });
+                    return false;
+                });
+        })();
+    </script>
+</div>
+</body>
+</html>

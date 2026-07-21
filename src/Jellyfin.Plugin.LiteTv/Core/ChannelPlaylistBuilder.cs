@@ -66,7 +66,10 @@ public class ChannelPlaylistBuilder
 
     private IReadOnlyList<ScheduledEntry> Build(TvChannel channel)
     {
-        var entries = new List<ScheduledEntry>();
+        // Expand each source into its own ordered list ("stream"). With the default
+        // block size the streams are simply concatenated (each source played in full);
+        // with a positive block size they are interleaved round-robin (see below).
+        var streams = new List<List<ScheduledEntry>>();
         foreach (var source in channel.Sources)
         {
             var item = _libraryManager.GetItemById(source.ItemId);
@@ -76,21 +79,62 @@ public class ChannelPlaylistBuilder
                 continue;
             }
 
+            var stream = new List<ScheduledEntry>();
             switch (item)
             {
                 case Series series:
-                    AddSeries(entries, series);
+                    AddSeries(stream, series);
                     break;
                 case BoxSet boxSet:
-                    AddCollection(entries, boxSet);
+                    AddCollection(stream, boxSet);
                     break;
                 default:
-                    AddIfPlayable(entries, item);
+                    AddIfPlayable(stream, item);
                     break;
+            }
+
+            if (stream.Count > 0)
+            {
+                streams.Add(stream);
             }
         }
 
-        return entries;
+        return Interleave(streams, channel.EpisodesPerBlock);
+    }
+
+    /// <summary>
+    /// Merges the per-source streams. A non-positive block size concatenates them in
+    /// order (each source in full). A positive block size rotates through the sources
+    /// taking up to that many items from each per round, so multiple series air in
+    /// alternating blocks, e.g. block 2 over [S1, S2] gives S1E1, S1E2, S2E1, S2E2,
+    /// S1E3, S1E4, ... Uneven streams simply drop out once exhausted.
+    /// </summary>
+    private static IReadOnlyList<ScheduledEntry> Interleave(List<List<ScheduledEntry>> streams, int blockSize)
+    {
+        if (blockSize <= 0 || streams.Count <= 1)
+        {
+            return streams.SelectMany(s => s).ToList();
+        }
+
+        var result = new List<ScheduledEntry>();
+        var cursors = new int[streams.Count];
+        bool progressed;
+        do
+        {
+            progressed = false;
+            for (var i = 0; i < streams.Count; i++)
+            {
+                var stream = streams[i];
+                for (var k = 0; k < blockSize && cursors[i] < stream.Count; k++)
+                {
+                    result.Add(stream[cursors[i]++]);
+                    progressed = true;
+                }
+            }
+        }
+        while (progressed);
+
+        return result;
     }
 
     private void AddSeries(List<ScheduledEntry> entries, Series series)

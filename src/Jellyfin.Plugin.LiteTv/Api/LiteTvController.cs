@@ -129,12 +129,13 @@ public class LiteTvController : ControllerBase
     /// </summary>
     /// <param name="sessionId">The session id.</param>
     /// <param name="channelId">The channel id.</param>
+    /// <param name="itemId">The item about to play, to snapshot its user data before playback; optional.</param>
     /// <returns>No content.</returns>
     [HttpPost("Tuned")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public ActionResult Tune([FromQuery] string sessionId, [FromQuery] Guid channelId)
+    public ActionResult Tune([FromQuery] string sessionId, [FromQuery] Guid channelId, [FromQuery] Guid? itemId = null)
     {
-        _sessionMonitor.Tune(sessionId, channelId, followSchedule: false);
+        _sessionMonitor.Tune(sessionId, channelId, followSchedule: false, itemId);
         return NoContent();
     }
 

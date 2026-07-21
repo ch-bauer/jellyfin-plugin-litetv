@@ -1,6 +1,6 @@
 {
   "category": "General",
-  "changelog": "Channels no longer stop after one item: the schedule now follows continuously from item to item (Jellyfin swaps media in place without a view change, which the previous watcher missed). The TV home-screen row is placed in the normal sections flow, removing the large gap above it. Fixes a tuned-state leak when leaving the channel after an in-place advance.",
+  "changelog": "Channels can interleave their sources in blocks: set 'Episodes per block' (e.g. 2) so two series air alternating, S1E1, S1E2, S2E1, S2E2, ... (0 keeps the marathon behaviour). Watch state is now fully protected: each item's played flag, play count and resume position are snapshotted before playback and restored on stop and on leaving, so channel viewing never marks anything watched. Returning to the home page now also leaves the channel cleanly.",
   "description": "Lightweight virtual TV channels: deterministic schedules over your own library, tuned in via normal direct playback at the live position. No transcoding, no tuner emulation.",
   "guid": "13953c97-f5a0-4713-8d4c-96b5369e5791",
   "imageUrl": "https://raw.githubusercontent.com/ch-bauer/jellyfin-plugin-litetv/main/images/icon.png",
@@ -9,7 +9,7 @@
   "owner": "Christian",
   "targetAbi": "10.11.0.0",
   "timestamp": "2026-07-21T00:00:00.000Z",
-  "version": "1.0.6.0",
+  "version": "1.0.7.0",
   "status": "Active",
   "autoUpdate": false
 }

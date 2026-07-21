@@ -195,18 +195,27 @@
 
     // ---------------------------------------------------------------- playback
 
-    function playItem(itemId, positionTicks) {
+    function playItem(itemId, positionTicks, channelId) {
+        channelId = channelId || (tuned && tuned.channelId);
         return getOwnSession().then(function (session) {
             if (!session) {
                 throw new Error('own session not found');
             }
-            var url = window.ApiClient.getUrl('Sessions/' + session.Id + '/Playing', {
-                playCommand: 'PlayNow',
-                itemIds: itemId,
-                startPositionTicks: Math.max(0, Math.round(positionTicks || 0))
-            });
-            return window.ApiClient.fetch({ url: url, type: 'POST' }).then(function () {
-                return session.Id;
+            // Snapshot the item's watch state on the server before playback begins, so
+            // the played flag, play count and resume position can be restored afterwards
+            // (they are bumped around playback start, too late to catch at PlaybackStart).
+            var prepare = channelId
+                ? apiPost('LiteTv/Tuned?sessionId=' + encodeURIComponent(session.Id) + '&channelId=' + channelId + '&itemId=' + encodeURIComponent(itemId)).catch(function () { })
+                : Promise.resolve();
+            return prepare.then(function () {
+                var url = window.ApiClient.getUrl('Sessions/' + session.Id + '/Playing', {
+                    playCommand: 'PlayNow',
+                    itemIds: itemId,
+                    startPositionTicks: Math.max(0, Math.round(positionTicks || 0))
+                });
+                return window.ApiClient.fetch({ url: url, type: 'POST' }).then(function () {
+                    return session.Id;
+                });
             });
         });
     }
@@ -214,7 +223,9 @@
     function tuneIn(channelId) {
         closeGuide();
         return apiGet('LiteTv/Channels/' + channelId + '/Now?upcoming=1').then(function (now) {
-            return playItem(now.Current.ItemId, now.OffsetTicks).then(function (sessionId) {
+            // Pass the channel id so playItem marks the session tuned and snapshots the
+            // first item's watch state before playback starts.
+            return playItem(now.Current.ItemId, now.OffsetTicks, channelId).then(function (sessionId) {
                 tuned = {
                     channelId: channelId,
                     channelName: now.ChannelName,
@@ -225,8 +236,6 @@
                 };
                 chainInProgress = true; // survives the osd transition
                 document.body.classList.add(TUNED_BODY_CLASS);
-                apiPost('LiteTv/Tuned?sessionId=' + encodeURIComponent(sessionId) + '&channelId=' + channelId)
-                    .catch(function () { /* hygiene is best-effort */ });
                 showTuneOverlay(now);
             });
         }).catch(function (err) {
@@ -1066,11 +1075,6 @@
         }
         ensureHeaderButton();
 
-        if (isHome(e) && e.target) {
-            renderHomeRow(e.target);
-            return;
-        }
-
         if (isVideoOsd(e)) {
             if (tuned) {
                 chainInProgress = false;
@@ -1079,8 +1083,14 @@
             return;
         }
 
-        // Any other page: when we are not mid-chain (the osd briefly hides while
-        // switching items), the viewer has left the channel.
+        if (isHome(e) && e.target) {
+            renderHomeRow(e.target);
+        }
+
+        // Landing anywhere that is not the video OSD means the viewer has left the
+        // channel, unless we are mid-chain (the OSD briefly hides while switching
+        // items, which can surface the home page for a moment). This includes the
+        // home page, so returning home does not leave the session marked tuned.
         if (tuned && !chainInProgress) {
             untune();
         }

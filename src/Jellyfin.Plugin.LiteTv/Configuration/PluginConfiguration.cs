@@ -64,6 +64,15 @@ public class TvChannel
     /// Gets or sets the ordered content sources making up the loop.
     /// </summary>
     public List<ChannelSource> Sources { get; set; } = new();
+
+    /// <summary>
+    /// Gets or sets how many consecutive items are taken from each source before
+    /// rotating to the next one, interleaving the channel's sources. For example, two
+    /// series with a block of 2 play as S1E1, S1E2, S2E1, S2E2, S1E3, S1E4, ... The
+    /// default of 0 keeps the classic behaviour: each source is played in full before
+    /// the next (a marathon).
+    /// </summary>
+    public int EpisodesPerBlock { get; set; }
 }
 
 /// <summary>

@@ -77,25 +77,120 @@ public class TunedSessionMonitor : IHostedService
     }
 
     /// <summary>
-    /// Marks a session as tuned to a channel.
+    /// Marks a session as tuned to a channel and, when an item is given, snapshots that
+    /// item's user data before playback starts. The injected script calls this before
+    /// every item it plays, so the snapshot captures the true pre-playback state (play
+    /// count and played flag are bumped around playback start, so snapshotting only at
+    /// PlaybackStart would already be too late).
     /// </summary>
     /// <param name="sessionId">The session id.</param>
     /// <param name="channelId">The channel id.</param>
     /// <param name="followSchedule">Whether the server should push the next scheduled item
     /// when an item finishes (native clients without the injected script).</param>
-    public void Tune(string sessionId, Guid channelId, bool followSchedule)
+    /// <param name="itemId">The item about to play, to snapshot before playback; optional.</param>
+    public void Tune(string sessionId, Guid channelId, bool followSchedule, Guid? itemId = null)
     {
-        _tuned[sessionId] = new TunedSession(channelId, followSchedule);
+        // Preserve an existing session (and its snapshots) across the repeated calls the
+        // script makes; only the first call establishes followSchedule.
+        var tuned = _tuned.GetOrAdd(sessionId, _ => new TunedSession(channelId, followSchedule));
+        tuned.Touch();
+
+        if (itemId.HasValue && itemId.Value != Guid.Empty)
+        {
+            var item = _libraryManager.GetItemById(itemId.Value);
+            if (item is not null)
+            {
+                foreach (var user in GetSessionUsers(sessionId))
+                {
+                    SnapshotItem(tuned, user, item);
+                }
+            }
+        }
+
         Prune();
     }
 
     /// <summary>
-    /// Removes the tuned mark from a session.
+    /// Removes the tuned mark from a session and restores any user data still held (e.g.
+    /// the viewer left mid-item, so no stop event cleared its snapshot).
     /// </summary>
     /// <param name="sessionId">The session id.</param>
     public void Untune(string sessionId)
     {
-        _tuned.TryRemove(sessionId, out _);
+        if (!_tuned.TryRemove(sessionId, out var tuned))
+        {
+            return;
+        }
+
+        foreach (var pair in tuned.Snapshots)
+        {
+            var user = _userManager.GetUserById(pair.Key.UserId);
+            var item = _libraryManager.GetItemById(pair.Key.ItemId);
+            if (user is not null && item is not null)
+            {
+                _ = RestoreUserDataAsync(user, item, pair.Value);
+            }
+        }
+    }
+
+    private IEnumerable<User> GetSessionUsers(string sessionId)
+    {
+        var session = _sessionManager.Sessions
+            .FirstOrDefault(s => string.Equals(s.Id, sessionId, StringComparison.Ordinal));
+        if (session is null)
+        {
+            yield break;
+        }
+
+        var seen = new HashSet<Guid>();
+        if (session.UserId != Guid.Empty && seen.Add(session.UserId))
+        {
+            var user = _userManager.GetUserById(session.UserId);
+            if (user is not null)
+            {
+                yield return user;
+            }
+        }
+
+        foreach (var additional in session.AdditionalUsers)
+        {
+            if (seen.Add(additional.UserId))
+            {
+                var user = _userManager.GetUserById(additional.UserId);
+                if (user is not null)
+                {
+                    yield return user;
+                }
+            }
+        }
+    }
+
+    private void SnapshotItem(TunedSession tuned, User user, MediaBrowser.Controller.Entities.BaseItem item)
+    {
+        var key = (user.Id, item.Id);
+        if (tuned.Snapshots.ContainsKey(key))
+        {
+            return; // keep the oldest snapshot if the item is prepared/started more than once
+        }
+
+        try
+        {
+            var data = _userDataManager.GetUserData(user, item);
+            if (data is null)
+            {
+                return;
+            }
+
+            tuned.Snapshots[key] = new UserDataSnapshot(
+                data.PlaybackPositionTicks,
+                data.Played,
+                data.PlayCount,
+                data.LastPlayedDate);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "LiteTV: could not snapshot user data for {Item}.", item.Name);
+        }
     }
 
     private void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
@@ -106,33 +201,13 @@ public class TunedSessionMonitor : IHostedService
             return;
         }
 
+        // Fallback snapshot: normally the script pre-snapshots via Tune before the item
+        // plays, so this keeps the earlier (pre-playback) snapshot; it only takes a fresh
+        // one for anything that reached playback without being prepared.
         tuned.Touch();
         foreach (var user in e.Users)
         {
-            var key = (user.Id, item.Id);
-            if (tuned.Snapshots.ContainsKey(key))
-            {
-                continue; // keep the oldest snapshot if the item restarts
-            }
-
-            try
-            {
-                var data = _userDataManager.GetUserData(user, item);
-                if (data is null)
-                {
-                    continue;
-                }
-
-                tuned.Snapshots[key] = new UserDataSnapshot(
-                    data.PlaybackPositionTicks,
-                    data.Played,
-                    data.PlayCount,
-                    data.LastPlayedDate);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "LiteTV: could not snapshot user data for {Item}.", item.Name);
-            }
+            SnapshotItem(tuned, user, item);
         }
     }
 

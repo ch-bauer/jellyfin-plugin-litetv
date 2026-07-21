@@ -74,7 +74,14 @@
                         </div>
                     </div>
 
-                    <h4>Program (played in order, looping forever)</h4>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="number" id="EpisodesPerBlock" min="0" step="1" label="Episodes per block (0 = play each source in full)" />
+                        <div class="fieldDescription">
+                            With more than one source, rotate through them taking this many items from each before moving on. For example, 2 with two series airs S1E1, S1E2, S2E1, S2E2, S1E3, S1E4, … Leave at 0 to play each source fully before the next (a marathon).
+                        </div>
+                    </div>
+
+                    <h4>Program (looping forever)</h4>
                     <div class="paperList" id="SourceList" style="margin-bottom: 1em;"></div>
 
                     <div class="inputContainer">
@@ -127,6 +134,7 @@
                 }
                 q('#ChannelName').value = channel.Name || '';
                 q('#ChannelEnabled').checked = channel.Enabled !== false;
+                q('#EpisodesPerBlock').value = channel.EpisodesPerBlock || 0;
                 q('#ResetAnchor').checked = false;
                 renderSources();
                 q('#SearchResults').innerHTML = '';
@@ -307,6 +315,7 @@
                 if (!channel) { return; }
                 channel.Name = q('#ChannelName').value.trim() || 'Channel';
                 channel.Enabled = q('#ChannelEnabled').checked;
+                channel.EpisodesPerBlock = parseInt(q('#EpisodesPerBlock').value, 10) || 0;
                 if (q('#ResetAnchor').checked) {
                     channel.AnchorUtc = new Date().toISOString();
                 }

@@ -1,6 +1,6 @@
 {
   "category": "General",
-  "changelog": "The TV home-screen row no longer flickers when returning to the home page: the channel guide is cached and the row is only rebuilt when the schedule actually changes. The end-of-episode overlay also hides its choice buttons when following the schedule and continuing the series lead to the same next episode.",
+  "changelog": "Skipping ahead no longer stops the channel: the schedule keeps following item to item even when episodes are finished early. The follow-up now also starts precisely at the credits using Jellyfin's Media Segments (outro) when available, falling back to a short margin before the end otherwise, so the tail credits are skipped.",
   "description": "Lightweight virtual TV channels: deterministic schedules over your own library, tuned in via normal direct playback at the live position. No transcoding, no tuner emulation.",
   "guid": "13953c97-f5a0-4713-8d4c-96b5369e5791",
   "imageUrl": "https://raw.githubusercontent.com/ch-bauer/jellyfin-plugin-litetv/main/images/icon.png",
@@ -9,7 +9,7 @@
   "owner": "Christian",
   "targetAbi": "10.11.0.0",
   "timestamp": "2026-07-21T00:00:00.000Z",
-  "version": "1.0.3.0",
+  "version": "1.0.4.0",
   "status": "Active",
   "autoUpdate": false
 }

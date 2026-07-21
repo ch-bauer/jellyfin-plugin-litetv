@@ -14,6 +14,10 @@
     var PAUSE_PANEL_ID = 'liteTvPausePanel';
     var TUNED_BODY_CLASS = 'liteTvTuned';
     var NEXT_OVERLAY_WINDOW_SECONDS = 45;
+    // Fallback margin (seconds before the real end) for advancing to the follow-up
+    // when an item has no outro segment to skip to. With a Media Segments outro the
+    // schedule advances precisely at the credits instead.
+    var NEXT_ADVANCE_SECONDS = 15;
 
     // Tuned state for this browser tab. mode: 'schedule' | 'binge' | 'offschedule'
     var tuned = null;
@@ -441,10 +445,32 @@
         }
     }
 
+    // Reads the start of the item's outro/credits from the Media Segments API
+    // (Jellyfin 10.11+). Returns the earliest outro start in seconds, or null when
+    // the item has no outro segment.
+    function fetchOutroStart(itemId) {
+        return apiGet('MediaSegments/' + itemId + '?includeSegmentTypes=Outro').then(function (result) {
+            var items = (result && result.Items) || [];
+            var earliest = null;
+            for (var i = 0; i < items.length; i++) {
+                if (items[i].Type === 'Outro' && typeof items[i].StartTicks === 'number') {
+                    var seconds = items[i].StartTicks / 10000000;
+                    if (earliest === null || seconds < earliest) {
+                        earliest = seconds;
+                    }
+                }
+            }
+            return earliest;
+        }).catch(function () { return null; });
+    }
+
     function startWatcher() {
         stopWatcher();
         var overlayShown = false;
         var fired = false;
+        var settled = false;
+        var segmentsRequested = false;
+        var advancePoint = null; // seconds into the item at which to advance
         var nextInfo = null; // { schedule: ProgramDto|null, binge: {Id, Name}|null }
 
         watchTimer = setInterval(function () {
@@ -465,23 +491,54 @@
 
             var remaining = video.duration - video.currentTime;
 
-            // Seeking back out of the window re-arms the overlay for the next approach.
-            if (overlayShown && remaining > NEXT_OVERLAY_WINDOW_SECONDS + 10) {
-                overlayShown = false;
-                removeOverlay(NEXT_OVERLAY_ID);
+            // A freshly-started item reports plenty of remaining time; until we have
+            // seen that, the <video> may still be the previous, already-ended item
+            // lingering through the hand-off. Firing the follow-up on that stale
+            // element would skip past the item that just started (and, when the rapid
+            // chain hits a transient error, drop the channel entirely). So only arm
+            // the end-of-item logic once the current item is genuinely playing.
+            if (!video.ended && remaining > 2) {
+                settled = true;
+            }
+            if (!settled) {
+                return;
             }
 
-            if (remaining <= NEXT_OVERLAY_WINDOW_SECONDS && !overlayShown) {
-                overlayShown = true;
-                prepareNext().then(function (info) {
-                    nextInfo = info;
-                    if (tuned && info) {
-                        showNextOverlay(info, Math.max(1, Math.floor(remaining)));
+            // Resolve, once per item, where to advance: the start of the outro/credits
+            // from the Media Segments API when the item has one, otherwise a fixed
+            // margin before the real end. Either way the tail credits are skipped.
+            if (!segmentsRequested) {
+                segmentsRequested = true;
+                advancePoint = video.duration - NEXT_ADVANCE_SECONDS;
+                var segItemId = tuned.currentItemId;
+                var segDuration = video.duration;
+                fetchOutroStart(segItemId).then(function (outroSeconds) {
+                    if (tuned && tuned.currentItemId === segItemId
+                        && outroSeconds !== null && outroSeconds > 2 && outroSeconds < segDuration - 1) {
+                        advancePoint = outroSeconds;
                     }
                 });
             }
 
-            if ((remaining <= 0.5 || video.ended) && !fired) {
+            var untilAdvance = advancePoint - video.currentTime;
+
+            // Seeking back out of the window re-arms the overlay for the next approach.
+            if (overlayShown && untilAdvance > NEXT_OVERLAY_WINDOW_SECONDS + 10) {
+                overlayShown = false;
+                removeOverlay(NEXT_OVERLAY_ID);
+            }
+
+            if (untilAdvance <= NEXT_OVERLAY_WINDOW_SECONDS && !overlayShown) {
+                overlayShown = true;
+                prepareNext().then(function (info) {
+                    nextInfo = info;
+                    if (tuned && info) {
+                        showNextOverlay(info, Math.max(1, Math.floor(untilAdvance)));
+                    }
+                });
+            }
+
+            if ((untilAdvance <= 0 || video.ended) && !fired) {
                 fired = true;
                 stopWatcher();
                 playNext(nextInfo);

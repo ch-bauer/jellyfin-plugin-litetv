@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/ch-bauer/jellyfin-plugin-litetv/main/images/icon.png",
     "versions": [
       {
+        "version": "1.0.3.0",
+        "changelog": "The TV home-screen row no longer flickers when returning to the home page: the channel guide is cached and the row is only rebuilt when the schedule actually changes. The end-of-episode overlay also hides its choice buttons when following the schedule and continuing the series lead to the same next episode.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/ch-bauer/jellyfin-plugin-litetv/releases/download/v1.0.3.0/litetv-channels_1.0.3.0.zip",
+        "checksum": "f4d0dba0e7b39e63a207d01b9284bb38",
+        "timestamp": "2026-07-21T00:00:00Z"
+      },
+      {
         "version": "1.0.2.0",
         "changelog": "TV row stays at the bottom of the home screen; pause panel synced with Jellyfin Enhanced's pause screen and positioned top-right; end-of-episode overlay hides its buttons when there is no series to continue.",
         "targetAbi": "10.11.0.0",

@@ -1,6 +1,6 @@
 {
   "category": "General",
-  "changelog": "TV row now stays at the bottom of the home screen; the pause panel is synced to Jellyfin Enhanced's pause screen (shown only together with it, positioned top-right); the end-of-episode overlay hides its buttons when there is no series to continue.",
+  "changelog": "The TV home-screen row no longer flickers when returning to the home page: the channel guide is cached and the row is only rebuilt when the schedule actually changes. The end-of-episode overlay also hides its choice buttons when following the schedule and continuing the series lead to the same next episode.",
   "description": "Lightweight virtual TV channels: deterministic schedules over your own library, tuned in via normal direct playback at the live position. No transcoding, no tuner emulation.",
   "guid": "13953c97-f5a0-4713-8d4c-96b5369e5791",
   "imageUrl": "https://raw.githubusercontent.com/ch-bauer/jellyfin-plugin-litetv/main/images/icon.png",
@@ -8,8 +8,8 @@
   "overview": "TV channels from your library, without transcoding.",
   "owner": "Christian",
   "targetAbi": "10.11.0.0",
-  "timestamp": "2026-07-19T00:00:00.000Z",
-  "version": "1.0.2.0",
+  "timestamp": "2026-07-21T00:00:00.000Z",
+  "version": "1.0.3.0",
   "status": "Active",
   "autoUpdate": false
 }

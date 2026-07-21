@@ -20,6 +20,7 @@
     var watchTimer = null;
     var chainInProgress = false;
     var homeRowObserver = null;
+    var lastHomeRowGuide = null;
 
     function apiGet(path) {
         return window.ApiClient.fetch({ url: window.ApiClient.getUrl(path), type: 'GET', dataType: 'json' });
@@ -574,9 +575,11 @@
         var secondsLeft = countdownSeconds;
         var scheduleBtn = null;
         var bingeBtn = null;
-        // Without a series to continue there is no real choice: show only what
-        // comes next, no buttons.
-        var hasChoice = !!(info.binge && tuned && tuned.currentSeriesId);
+        // Without a series to continue there is no real choice; the same goes for
+        // when the schedule's next program IS the next episode of this series.
+        // Then show only what comes next, no buttons.
+        var hasChoice = !!(info.binge && tuned && tuned.currentSeriesId
+            && (!info.schedule || info.schedule.ItemId !== info.binge.Id));
 
         function scheduleName() {
             if (!info.schedule) {
@@ -739,6 +742,12 @@
         return card;
     }
 
+    function homeRowSignature(channels) {
+        return JSON.stringify(channels.map(function (channel) {
+            return { Id: channel.Id, Now: channel.Now, Next: channel.Next };
+        }));
+    }
+
     function renderHomeRow(page) {
         apiGet('LiteTv/Channels').then(function (guide) {
             if (!guide.EnableWebUi || !guide.ShowHomeRow || !guide.Channels.length) {
@@ -747,6 +756,13 @@
             ensureStyle();
             var container = page.querySelector('.homeSectionsContainer') || page;
             var existing = document.getElementById(HOME_ROW_ID);
+
+            var signature = homeRowSignature(guide.Channels);
+            if (signature === lastHomeRowGuide && existing && existing.parentNode) {
+                return;
+            }
+            lastHomeRowGuide = signature;
+
             if (existing && existing.parentNode) {
                 existing.parentNode.removeChild(existing);
             }

@@ -1,6 +1,6 @@
 {
   "category": "General",
-  "changelog": "The header 📺 button now has its own setting, independent of the home row and overlays, so it can be hidden while the TV row and playback overlays stay on. 'Enable the TV UI' remains the master switch.",
+  "changelog": "Channels no longer stop after one item: the schedule now follows continuously from item to item (Jellyfin swaps media in place without a view change, which the previous watcher missed). The TV home-screen row is placed in the normal sections flow, removing the large gap above it. Fixes a tuned-state leak when leaving the channel after an in-place advance.",
   "description": "Lightweight virtual TV channels: deterministic schedules over your own library, tuned in via normal direct playback at the live position. No transcoding, no tuner emulation.",
   "guid": "13953c97-f5a0-4713-8d4c-96b5369e5791",
   "imageUrl": "https://raw.githubusercontent.com/ch-bauer/jellyfin-plugin-litetv/main/images/icon.png",
@@ -9,7 +9,7 @@
   "owner": "Christian",
   "targetAbi": "10.11.0.0",
   "timestamp": "2026-07-21T00:00:00.000Z",
-  "version": "1.0.5.0",
+  "version": "1.0.6.0",
   "status": "Active",
   "autoUpdate": false
 }

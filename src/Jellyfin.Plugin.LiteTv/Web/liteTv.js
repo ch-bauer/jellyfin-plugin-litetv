@@ -466,6 +466,12 @@
 
     function startWatcher() {
         stopWatcher();
+        // The watcher runs continuously for the whole tuned session, not just one
+        // item. Jellyfin swaps the media in place on a chained PlayNow without
+        // firing another 'viewshow', so a per-item watcher that stopped after
+        // advancing would never restart and the channel would halt after one item.
+        // Instead this watcher re-arms itself whenever the current item changes.
+        var watchedItemId = null;
         var overlayShown = false;
         var fired = false;
         var settled = false;
@@ -473,10 +479,26 @@
         var advancePoint = null; // seconds into the item at which to advance
         var nextInfo = null; // { schedule: ProgramDto|null, binge: {Id, Name}|null }
 
+        function armForItem(itemId) {
+            watchedItemId = itemId;
+            overlayShown = false;
+            fired = false;
+            settled = false;
+            segmentsRequested = false;
+            advancePoint = null;
+            nextInfo = null;
+            removeOverlay(NEXT_OVERLAY_ID);
+        }
+
         watchTimer = setInterval(function () {
             if (!tuned) {
                 stopWatcher();
                 return;
+            }
+            // A new item took over (the previous one advanced, or a restart/binge
+            // switched items): reset the end-of-item state for it.
+            if (tuned.currentItemId !== watchedItemId) {
+                armForItem(tuned.currentItemId);
             }
             var video = document.querySelector('#videoOsdPage video') || document.querySelector('video');
             if (!video || !video.duration || isNaN(video.duration)) {
@@ -494,11 +516,16 @@
             // A freshly-started item reports plenty of remaining time; until we have
             // seen that, the <video> may still be the previous, already-ended item
             // lingering through the hand-off. Firing the follow-up on that stale
-            // element would skip past the item that just started (and, when the rapid
-            // chain hits a transient error, drop the channel entirely). So only arm
-            // the end-of-item logic once the current item is genuinely playing.
+            // element would skip past the item that just started. So only arm the
+            // end-of-item logic once the current item is genuinely playing.
             if (!video.ended && remaining > 2) {
                 settled = true;
+                // The item is genuinely playing, so any transition is complete: clear
+                // the chain guard even when Jellyfin swapped the media in place without
+                // a 'viewshow' (which is what would otherwise reset it). Otherwise
+                // leaving the channel later would not be detected and the tuned state
+                // would leak.
+                chainInProgress = false;
             }
             if (!settled) {
                 return;
@@ -539,8 +566,10 @@
             }
 
             if ((untilAdvance <= 0 || video.ended) && !fired) {
+                // Do not stop the watcher: it keeps running so the next item, which
+                // Jellyfin swaps in without a 'viewshow', is picked up and advanced
+                // in turn. playNext updates tuned.currentItemId, which re-arms us.
                 fired = true;
-                stopWatcher();
                 playNext(nextInfo);
             }
         }, 500);
@@ -805,17 +834,42 @@
         }));
     }
 
+    // Parks the TV row inside the stock home sections flow (.homeSectionsContainer)
+    // as its last child, so it shares the same vertical rhythm as the other rows.
+    // That container renders asynchronously after us, so until it exists the row is
+    // appended to the page and the observer migrates it in once it appears. Appending
+    // to the page directly (below #homeTab) is what left an oversized gap above it.
+    function placeHomeRow(page, section) {
+        var host = page.querySelector('.homeSectionsContainer') || page;
+        if (section.parentNode !== host || host.lastElementChild !== section) {
+            host.appendChild(section);
+        }
+    }
+
+    function observeHomeRow(page, section) {
+        if (homeRowObserver) {
+            homeRowObserver.disconnect();
+        }
+        homeRowObserver = new MutationObserver(function () {
+            placeHomeRow(page, section);
+        });
+        homeRowObserver.observe(page, { childList: true, subtree: true });
+    }
+
     function renderHomeRow(page) {
         apiGet('LiteTv/Channels').then(function (guide) {
             if (!guide.EnableWebUi || !guide.ShowHomeRow || !guide.Channels.length) {
                 return;
             }
             ensureStyle();
-            var container = page.querySelector('.homeSectionsContainer') || page;
             var existing = document.getElementById(HOME_ROW_ID);
 
             var signature = homeRowSignature(guide.Channels);
             if (signature === lastHomeRowGuide && existing && existing.parentNode) {
+                // Data unchanged: leave the cards alone, but keep the row parked in
+                // the sections flow and pinned there.
+                placeHomeRow(page, existing);
+                observeHomeRow(page, existing);
                 return;
             }
             lastHomeRowGuide = signature;
@@ -838,19 +892,9 @@
                 cards.appendChild(buildChannelCard(channel));
             });
             section.appendChild(cards);
-            container.appendChild(section);
 
-            // The stock home sections render asynchronously after us; keep the TV
-            // row pinned to the bottom of the page as they appear.
-            if (homeRowObserver) {
-                homeRowObserver.disconnect();
-            }
-            homeRowObserver = new MutationObserver(function () {
-                if (section.parentNode === container && container.lastElementChild !== section) {
-                    container.appendChild(section);
-                }
-            });
-            homeRowObserver.observe(container, { childList: true });
+            placeHomeRow(page, section);
+            observeHomeRow(page, section);
         }).catch(function (err) {
             console.debug('liteTv: guide not available', err);
         });

@@ -23,6 +23,13 @@ public class PluginConfiguration : BasePluginConfiguration
     /// to the web client's home screen.
     /// </summary>
     public bool ShowHomeRow { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the "📺" channel-guide button is added
+    /// to the web client's header. Independent of the home row and overlays, so the
+    /// button can be hidden while those stay on.
+    /// </summary>
+    public bool ShowHeaderButton { get; set; } = true;
 }
 
 /// <summary>

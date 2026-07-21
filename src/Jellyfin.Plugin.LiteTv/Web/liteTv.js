@@ -984,7 +984,7 @@
             return;
         }
         apiGet('LiteTv/Channels').then(function (guide) {
-            if (!guide.EnableWebUi || document.getElementById('liteTvHeaderBtn')) {
+            if (!guide.EnableWebUi || !guide.ShowHeaderButton || document.getElementById('liteTvHeaderBtn')) {
                 return;
             }
             var btn = document.createElement('button');

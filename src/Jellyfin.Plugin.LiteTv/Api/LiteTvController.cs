@@ -59,7 +59,8 @@ public class LiteTvController : ControllerBase
         var result = new GuideDto
         {
             EnableWebUi = config?.EnableWebUi ?? false,
-            ShowHomeRow = config?.ShowHomeRow ?? false
+            ShowHomeRow = config?.ShowHomeRow ?? false,
+            ShowHeaderButton = config?.ShowHeaderButton ?? false
         };
 
         foreach (var channel in config?.Channels ?? new())
@@ -330,6 +331,9 @@ public class GuideDto
 
     /// <summary>Gets or sets a value indicating whether the home row is enabled.</summary>
     public bool ShowHomeRow { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the header guide button is enabled.</summary>
+    public bool ShowHeaderButton { get; set; }
 
     /// <summary>Gets the enabled channels.</summary>
     public List<ChannelSummaryDto> Channels { get; } = new();

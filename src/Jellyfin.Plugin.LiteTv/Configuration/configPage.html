@@ -18,7 +18,7 @@
                         <span>Enable the TV UI in the web client</span>
                     </label>
                     <div class="fieldDescription checkboxFieldDescription">
-                        Adds the channel guide (📺 button in the header) and playback overlays. Web client only (browser and apps that embed the web UI). After installing or updating the plugin, hard-refresh the browser (Ctrl+F5) once.
+                        Master switch for the playback overlays (channel bug, next-up, pause panel) and the two options below. Web client only (browser and apps that embed the web UI). After installing or updating the plugin, hard-refresh the browser (Ctrl+F5) once.
                     </div>
                 </div>
 
@@ -26,6 +26,13 @@
                     <label>
                         <input is="emby-checkbox" type="checkbox" id="ShowHomeRow" />
                         <span>Show a "TV" row with channel cards on the home screen</span>
+                    </label>
+                </div>
+
+                <div class="checkboxContainer">
+                    <label>
+                        <input is="emby-checkbox" type="checkbox" id="ShowHeaderButton" />
+                        <span>Show the 📺 channel-guide button in the header</span>
                     </label>
                 </div>
 
@@ -313,6 +320,7 @@
                         config.Channels = config.Channels || [];
                         q('#EnableWebUi').checked = config.EnableWebUi !== false;
                         q('#ShowHomeRow').checked = config.ShowHomeRow !== false;
+                        q('#ShowHeaderButton').checked = config.ShowHeaderButton !== false;
                         currentIndex = config.Channels.length ? 0 : -1;
                         renderChannelSelect();
                         renderEditor();
@@ -362,6 +370,7 @@
                     applyEditorToChannel();
                     config.EnableWebUi = q('#EnableWebUi').checked;
                     config.ShowHomeRow = q('#ShowHomeRow').checked;
+                    config.ShowHeaderButton = q('#ShowHeaderButton').checked;
                     ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
                         renderChannelSelect();
                         Dashboard.processPluginConfigurationUpdateResult(result);
